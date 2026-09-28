@@ -1067,6 +1067,10 @@ void VulkanRenderTargetCache::ClearCache() {
   }
   render_passes_.clear();
 
+  // Queued in-pass transfers point to render targets that the common
+  // ClearCache may delete (a source that just lost its EDRAM range).
+  ClearPendingDrawPassTransfers();
+
   RenderTargetCache::ClearCache();
 }
 
