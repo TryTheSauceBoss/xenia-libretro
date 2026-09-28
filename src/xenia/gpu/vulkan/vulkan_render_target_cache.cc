@@ -1728,10 +1728,11 @@ void VulkanRenderTargetCache::GetLastUpdateRenderingAttachments(
   for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
     VkRenderingAttachmentInfo& color_attachment = color_attachments[i];
     std::memset(&color_attachment, 0, sizeof(VkRenderingAttachmentInfo));
+    // Unused slots below the last used one are passed too (with a null view).
+    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     if (!(key.depth_and_color_used & (1 << (1 + i)))) {
       continue;
     }
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color_attachment_count = i + 1;
     if (!rts[1 + i]) {
       continue;
