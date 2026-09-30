@@ -1265,7 +1265,16 @@ void TextureCache::BindingInfoFromFetchConstant(
   key_out.pitch = pitch;
   key_out.mip_max_level = mip_max_level;
   key_out.tiled = fetch.tiled;
-  key_out.packed_mips = fetch.packed_mips;
+  // With the base level alone and the packed mip tail below it (both sides
+  // over 16 texels), packing changes nothing that is loaded, so the key is the
+  // unpacked one - a game binding the same memory both ways (Forza Horizon
+  // does with a 1280x720 surface) then shares one texture instead of loading
+  // it twice.
+  key_out.packed_mips =
+      fetch.packed_mips &&
+      (mip_max_level != 0 ||
+       texture_util::GetPackedMipLevel(width_minus_1 + 1,
+                                       height_minus_1 + 1) == 0);
   key_out.format = format;
   key_out.endianness = fetch.endianness;
 
