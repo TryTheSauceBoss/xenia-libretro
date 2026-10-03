@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <utility>
 
@@ -1143,8 +1144,16 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(
     }
   }
   if (formats[0] == VK_FORMAT_UNDEFINED) {
-    // TODO(Triang3l): If there's no best format, set that a format unsupported
-    // by the emulator completely is used to report at the end of the frame.
+    // A format the emulator has no host format for: the texture is never
+    // created and samples as black. Reported once per format.
+    static std::atomic<uint64_t> reported_formats{0};
+    const uint64_t format_bit = uint64_t(1) << (uint32_t(key.format) & 63);
+    if (!(reported_formats.fetch_or(format_bit) & format_bit)) {
+      XELOGW(
+          "VulkanTextureCache: no host format for {} textures, they sample as "
+          "black",
+          FormatInfo::GetName(key.format));
+    }
     return nullptr;
   }
 
