@@ -366,6 +366,9 @@ class PhysicalHeap : public BaseHeap {
   // Also false where another view of the physical memory has it allocated.
   bool IsRangeUnallocated(uint32_t address, uint32_t size) override;
 
+  // Also unallocated in the heap this one aliases.
+  bool IsRangeUnallocated(uint32_t address, uint32_t size) override;
+
   void EnableAccessCallbacks(uint32_t physical_address, uint32_t length,
                              bool enable_invalidation_notifications,
                              bool enable_data_providers);
