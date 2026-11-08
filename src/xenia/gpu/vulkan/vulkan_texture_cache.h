@@ -517,6 +517,9 @@ class VulkanTextureCache final : public TextureCache {
   VkPipelineLayout load_pipeline_layout_ = VK_NULL_HANDLE;
   std::array<VkPipeline, kLoadShaderCount> load_pipelines_{};
   std::array<VkPipeline, kLoadShaderCount> load_pipelines_scaled_{};
+  // Whole-cache-line variants of some unscaled loads
+  // (vulkan_texture_load_coalesced), null where there is none.
+  std::array<VkPipeline, kLoadShaderCount> load_pipelines_coalesced_{};
 
   // Persistent descriptor binding the whole shared memory buffer
   // (kStorageBuffer layout) for compute load/store, so per-operation

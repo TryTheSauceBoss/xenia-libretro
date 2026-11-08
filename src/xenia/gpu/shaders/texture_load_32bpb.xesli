@@ -14,6 +14,44 @@ XE_TEXTURE_LOAD_ENTRY(16)
   // 1 thread = 8 blocks passed through an externally provided
   // uint4 transformation function (XE_TEXTURE_LOAD_32BPB_TRANSFORM).
   XeTextureLoadInfo load_info = XeTextureLoadGetInfo(pass_push_consts_xe);
+#if defined(XE_TEXTURE_LOAD_32BPB_COALESCED) && \
+    !defined(XE_TEXTURE_LOAD_RESOLUTION_SCALED)
+  // The 4 threads along X of a group take blocks 4t...4t+3 and 16+4t...19+4t
+  // of the group's 32 rather than 8t...8t+7, so each of the two 16-byte loads
+  // and stores of a wave covers whole 64-byte host rows and 128-byte guest row
+  // pairs, instead of every other 16 bytes of them.
+  uint3_xe block_index = in_global_thread_id_xe;
+  block_index.x =
+      ((block_index.x & ~3u) << 3u) | ((block_index.x & 3u) << 2u);
+  dont_flatten_xe
+  if (any(greater_than_equal_xe(block_index.xy, load_info.size_blocks.xy))) {
+    return;
+  }
+  uint block_offset_host =
+      load_info.host_offset +
+      uint(XeTextureHostLinearOffset(int3_xe(block_index), load_info.host_pitch,
+                                     load_info.size_blocks.y, 4u));
+  uint block_offset_guest =
+      XeTextureLoadSourceAddress(load_info, block_index, 2u);
+  uint4_xe guest_blocks = XeEndianSwap32(
+      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+      load_info.endian_32);
+  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
+                                 XE_TEXTURE_LOAD_32BPB_TRANSFORM(guest_blocks));
+  dont_flatten_xe
+  if (block_index.x + 16u >= load_info.size_blocks.x) {
+    return;
+  }
+  // X[4] is tiled address bit 7 together with Y[3] (or the bank), so it is
+  // flipped, not added.
+  block_offset_guest ^=
+      XeTextureLoadLocalXAddressXor(16u, 2u, load_info.is_tiled);
+  guest_blocks = XeEndianSwap32(
+      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+      load_info.endian_32);
+  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 64u,
+                                 XE_TEXTURE_LOAD_32BPB_TRANSFORM(guest_blocks));
+#else
   uint3_xe block_index = in_global_thread_id_xe << uint3_xe(3u, 0u, 0u);
   dont_flatten_xe
   if (any(greater_than_equal_xe(block_index.xy, load_info.size_blocks.xy))) {
@@ -38,5 +76,6 @@ XE_TEXTURE_LOAD_ENTRY(16)
       load_info.endian_32);
   byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
                                  XE_TEXTURE_LOAD_32BPB_TRANSFORM(guest_blocks));
+#endif
 }
 entry_code_end_compute_xe

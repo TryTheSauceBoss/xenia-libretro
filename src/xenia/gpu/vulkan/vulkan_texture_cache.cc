@@ -31,6 +31,15 @@
 
 DECLARE_bool(tiled_shared_memory);
 
+DEFINE_bool(
+    vulkan_texture_load_coalesced, true,
+    "Load unscaled 32-bit-per-block textures (including depth) with the "
+    "threads along X of a group taking interleaved 16-byte columns, so every "
+    "load and store instruction of a wave covers whole cache lines. Results "
+    "are identical. From Xendroid+: Forza Horizon on an Adreno 825, untiling "
+    "-42%, +3.7% fps.",
+    "Vulkan");
+
 namespace xe {
 namespace gpu {
 namespace vulkan {
@@ -44,6 +53,7 @@ namespace shaders {
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_128bpb_scaled_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_16bpb_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_16bpb_scaled_cs.h"
+#include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_32bpb_coalesced_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_32bpb_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_32bpb_scaled_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_64bpb_cs.h"
@@ -52,8 +62,10 @@ namespace shaders {
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_8bpb_scaled_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_bgrg8_rgb8_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_ctx1_cs.h"
+#include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_float_coalesced_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_float_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_float_scaled_cs.h"
+#include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_unorm_coalesced_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_unorm_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_depth_unorm_scaled_cs.h"
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/texture_load_dxn_rg8_cs.h"
@@ -474,6 +486,11 @@ VulkanTextureCache::~VulkanTextureCache() {
   for (VkDeviceMemory null_images_memory : null_images_memory_) {
     if (null_images_memory != VK_NULL_HANDLE) {
       dfn.vkFreeMemory(device, null_images_memory, nullptr);
+    }
+  }
+  for (VkPipeline load_pipeline : load_pipelines_coalesced_) {
+    if (load_pipeline != VK_NULL_HANDLE) {
+      dfn.vkDestroyPipeline(device, load_pipeline, nullptr);
     }
   }
   for (VkPipeline load_pipeline : load_pipelines_scaled_) {
@@ -1327,6 +1344,11 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
   VkPipeline pipeline = texture_key.scaled_resolve
                             ? load_pipelines_scaled_[load_shader]
                             : load_pipelines_[load_shader];
+  if (!texture_key.scaled_resolve && cvars::vulkan_texture_load_coalesced &&
+      load_pipelines_coalesced_[load_shader] != VK_NULL_HANDLE) {
+    // The same writes, with whole cache lines per instruction.
+    pipeline = load_pipelines_coalesced_[load_shader];
+  }
   if (pipeline == VK_NULL_HANDLE) {
     return false;
   }
@@ -3176,6 +3198,19 @@ bool VulkanTextureCache::Initialize() {
   load_shader_code[kLoadShaderIndexDepthFloat] =
       std::make_pair(shaders::texture_load_depth_float_cs,
                      sizeof(shaders::texture_load_depth_float_cs));
+  // Whole-cache-line variants of the 32-bit-per-block loads
+  // (vulkan_texture_load_coalesced).
+  std::pair<const uint32_t*, size_t>
+      load_shader_code_coalesced[kLoadShaderCount] = {};
+  load_shader_code_coalesced[kLoadShaderIndex32bpb] =
+      std::make_pair(shaders::texture_load_32bpb_coalesced_cs,
+                     sizeof(shaders::texture_load_32bpb_coalesced_cs));
+  load_shader_code_coalesced[kLoadShaderIndexDepthUnorm] =
+      std::make_pair(shaders::texture_load_depth_unorm_coalesced_cs,
+                     sizeof(shaders::texture_load_depth_unorm_coalesced_cs));
+  load_shader_code_coalesced[kLoadShaderIndexDepthFloat] =
+      std::make_pair(shaders::texture_load_depth_float_coalesced_cs,
+                     sizeof(shaders::texture_load_depth_float_coalesced_cs));
   std::pair<const uint32_t*, size_t> load_shader_code_scaled[kLoadShaderCount] =
       {};
   if (IsDrawResolutionScaled()) {
@@ -3266,6 +3301,21 @@ bool VulkanTextureCache::Initialize() {
           "for shader {}",
           i);
       return false;
+    }
+    const std::pair<const uint32_t*, size_t>&
+        current_load_shader_code_coalesced = load_shader_code_coalesced[i];
+    if (current_load_shader_code_coalesced.first) {
+      // Optional: without it, the loads keep the ordinary pipeline.
+      load_pipelines_coalesced_[i] = ui::vulkan::util::CreateComputePipeline(
+          vulkan_device, load_pipeline_layout_,
+          current_load_shader_code_coalesced.first,
+          current_load_shader_code_coalesced.second);
+      if (load_pipelines_coalesced_[i] == VK_NULL_HANDLE) {
+        XELOGW(
+            "VulkanTextureCache: Failed to create the coalesced texture "
+            "loading pipeline for shader {}",
+            i);
+      }
     }
     if (IsDrawResolutionScaled()) {
       const std::pair<const uint32_t*, size_t>&
