@@ -441,10 +441,18 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
       BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
       texture_bindings_in_sync_ |= index_bit;
       if (!binding.key.is_valid) {
-        if (old_key.is_valid) {
+        // An invalid fetch constant still has a destination swizzle: its
+        // constant components read as 0 or 1, the rest as the null texture's
+        // 0. Halo 4's video shader takes the frame's opacity from the
+        // constant 1 of a fetch constant with no texture - 0 left the videos
+        // invisible (from Xendroid+).
+        const uint32_t constant_swizzle = GuestToHostSwizzle(
+            fetch.swizzle, xenos::XE_GPU_TEXTURE_SWIZZLE_0000);
+        if (old_key.is_valid || binding.host_swizzle != constant_swizzle) {
           bindings_changed |= index_bit;
         }
         binding.Reset();
+        binding.host_swizzle = constant_swizzle;
         continue;
       }
       uint32_t old_host_swizzle = binding.host_swizzle;

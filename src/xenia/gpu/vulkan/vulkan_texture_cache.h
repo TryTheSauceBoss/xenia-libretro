@@ -96,6 +96,10 @@ class VulkanTextureCache final : public TextureCache {
   VkImageView GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,
                                               xenos::FetchOpDimension dimension,
                                               bool is_signed);
+  // The null image view for the dimension, with the components the host
+  // swizzle makes constant 1 mapped to 1.
+  VkImageView GetNullImageView(xenos::FetchOpDimension dimension,
+                               uint32_t host_swizzle);
 
   // Descriptor set (kStorageBuffer layout) binding the whole shared
   // memory buffer for compute load/store, or VK_NULL_HANDLE if the buffer
@@ -536,6 +540,9 @@ class VulkanTextureCache final : public TextureCache {
   VkImageView null_image_view_2d_array_ = VK_NULL_HANDLE;
   VkImageView null_image_view_cube_ = VK_NULL_HANDLE;
   VkImageView null_image_view_3d_ = VK_NULL_HANDLE;
+  // Null views per dimension (2D array, cube, 3D) and per mask of components
+  // that are constant 1, created on first use (GetNullImageView).
+  std::array<std::array<VkImageView, 16>, 3> null_image_views_ones_{};
   bool null_images_cleared_ = false;
 
   std::array<VulkanTextureBinding, xenos::kTextureFetchConstantCount>

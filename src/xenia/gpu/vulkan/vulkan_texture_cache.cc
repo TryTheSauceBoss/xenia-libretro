@@ -448,6 +448,14 @@ VulkanTextureCache::~VulkanTextureCache() {
   sampler_used_last_ = nullptr;
   sampler_used_first_ = nullptr;
 
+  for (auto& views : null_image_views_ones_) {
+    for (VkImageView& view : views) {
+      if (view != VK_NULL_HANDLE) {
+        dfn.vkDestroyImageView(device, view, nullptr);
+        view = VK_NULL_HANDLE;
+      }
+    }
+  }
   if (null_image_view_3d_ != VK_NULL_HANDLE) {
     dfn.vkDestroyImageView(device, null_image_view_3d_, nullptr);
   }
@@ -671,14 +679,79 @@ VkImageView VulkanTextureCache::GetActiveBindingOrNullImageView(
   if (image_view != VK_NULL_HANDLE) {
     return image_view;
   }
+  return GetNullImageView(dimension,
+                          GetActiveTextureHostSwizzle(fetch_constant_index));
+}
+
+VkImageView VulkanTextureCache::GetNullImageView(
+    xenos::FetchOpDimension dimension, uint32_t host_swizzle) {
+  uint32_t dimension_index;
+  VkImageView zero_view;
   switch (dimension) {
     case xenos::FetchOpDimension::k3DOrStacked:
-      return null_image_view_3d_;
+      dimension_index = 2;
+      zero_view = null_image_view_3d_;
+      break;
     case xenos::FetchOpDimension::kCube:
-      return null_image_view_cube_;
+      dimension_index = 1;
+      zero_view = null_image_view_cube_;
+      break;
     default:
-      return null_image_view_2d_array_;
+      dimension_index = 0;
+      zero_view = null_image_view_2d_array_;
+      break;
   }
+  // The null image is (0, 0, 0, 0); components the swizzle makes constant 1
+  // need a view mapping them to 1. Without view swizzles the shader applies
+  // the host swizzle, constants included, itself.
+  uint32_t ones = 0;
+  for (uint32_t i = 0; i < 4; ++i) {
+    if (((host_swizzle >> (3 * i)) & 0b111) == xenos::XE_GPU_TEXTURE_SWIZZLE_1) {
+      ones |= UINT32_C(1) << i;
+    }
+  }
+  const ui::vulkan::VulkanDevice* const vulkan_device =
+      command_processor_.GetVulkanDevice();
+  if (!ones || !vulkan_device->properties().imageViewFormatSwizzle) {
+    return zero_view;
+  }
+  VkImageView& view = null_image_views_ones_[dimension_index][ones];
+  if (view != VK_NULL_HANDLE) {
+    return view;
+  }
+  VkImageViewCreateInfo view_create_info;
+  view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  view_create_info.pNext = nullptr;
+  view_create_info.flags = 0;
+  view_create_info.image =
+      dimension_index == 2 ? null_image_3d_ : null_image_2d_array_cube_;
+  view_create_info.viewType =
+      dimension_index == 2
+          ? VK_IMAGE_VIEW_TYPE_3D
+          : (dimension_index == 1 ? VK_IMAGE_VIEW_TYPE_CUBE
+                                  : VK_IMAGE_VIEW_TYPE_2D_ARRAY);
+  view_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+  view_create_info.components.r =
+      (ones & 0b0001) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
+  view_create_info.components.g =
+      (ones & 0b0010) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
+  view_create_info.components.b =
+      (ones & 0b0100) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
+  view_create_info.components.a =
+      (ones & 0b1000) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
+  view_create_info.subresourceRange =
+      ui::vulkan::util::InitializeSubresourceRange(
+          VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+          dimension_index == 1 ? 6 : 1);
+  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+  if (dfn.vkCreateImageView(vulkan_device->device(), &view_create_info,
+                            nullptr, &view) != VK_SUCCESS) {
+    XELOGE("VulkanTextureCache: Failed to create a null image view with "
+           "constant 1 components");
+    view = VK_NULL_HANDLE;
+    return zero_view;
+  }
+  return view;
 }
 
 VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
