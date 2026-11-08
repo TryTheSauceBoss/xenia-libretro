@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- From Xendroid+: an empty texture fetch keeps the constant 1 components of its swizzle (Halo 4's videos were invisible), and a broken or crafted game file can no longer make the core read past it (XEX headers and basic-compressed blocks are checked against the file's size).
 - XBLA games can stay on an SD card: list their folders in system/Xenia-Edge/xbla_folders.txt, one a line; the core looks there too, and their .m3u shortcuts go in system/Xenia-Edge/xbla. With a listed folder out of reach (the card removed) the shortcuts are kept.
 - Two speed-ups from Xendroid+: indexed draws from the game's own index data bind it once per submission instead of at nearly every draw (Forza Horizon: 2726 binds a frame down to 157 in Xendroid+'s measurement), and the GPU thread no longer wakes a shader compile thread at every submission when nothing is waiting to compile.
 - Xbox Live Arcade and Games on Demand games can be opened from RetroArch: put their packages (no file extension, which RetroArch's file browser hides) in system/Xenia-Edge/xbla, in any layout, and the core writes a `<game name> [<Title ID>].m3u` for each there when RetroArch loads it; open that. Found the way Xendroid+'s library finds them.
