@@ -549,7 +549,8 @@ bool XexModule::has_code() const {
 
 int XexModule::ReadImage(const void* xex_addr, size_t xex_length,
                          const uint8_t* key) {
-  if (!opt_file_format_info()) {
+  // The encryption and compression types follow the size.
+  if (!opt_file_format_info() || opt_file_format_info()->info_size < 8) {
     return 1;
   }
 
@@ -781,17 +782,37 @@ int XexModule::ReadImageCompressed(const void* xex_addr, size_t xex_length) {
   const auto* compression_info = &opt_file_format_info()->compression_info;
   const xex2_compressed_block_info* cur_block =
       &compression_info->normal.first_block;
+  if (opt_file_format_info()->info_size <
+      offsetof(xex2_opt_file_format_info, compression_info) +
+          sizeof(xex2_file_normal_compression_info)) {
+    if (free_input) {
+      free((void*)input_buffer);
+    }
+    return 4;
+  }
 
   compress_buffer = (uint8_t*)calloc(1, exe_length);
 
   p = input_buffer;
   d = compress_buffer;
+  const uint8_t* const input_end = input_buffer + input_size;
+  const uint8_t* const compress_end = compress_buffer + exe_length;
 
   // De-block.
   int result_code = 0;
 
   uint8_t block_calced_digest[0x14];
   while (cur_block->block_size) {
+    // The sizes come from the file, and a crafted one can carry hashes that
+    // match: a block (the next one's size and hash, then the chunks) and each
+    // chunk must be inside the data.
+    if (cur_block->block_size < sizeof(xex2_compressed_block_info) ||
+        cur_block->block_size > size_t(input_end - p)) {
+      XELOGE("XEX: compressed block of {} bytes does not fit in the {} left",
+             uint32_t(cur_block->block_size), size_t(input_end - p));
+      result_code = 4;
+      break;
+    }
     const uint8_t* pnext = p + cur_block->block_size;
     const auto* next_block = (const xex2_compressed_block_info*)p;
 
@@ -806,16 +827,26 @@ int XexModule::ReadImageCompressed(const void* xex_addr, size_t xex_length) {
     p += 4;
     p += 20;
 
-    while (true) {
+    while (pnext - p >= 2) {
       const size_t chunk_size = (p[0] << 8) | p[1];
       p += 2;
       if (!chunk_size) {
+        break;
+      }
+      if (chunk_size > size_t(pnext - p) ||
+          chunk_size > size_t(compress_end - d)) {
+        XELOGE("XEX: compressed chunk of {} bytes does not fit in its block",
+               chunk_size);
+        result_code = 4;
         break;
       }
 
       memcpy(d, p, chunk_size);
       p += chunk_size;
       d += chunk_size;
+    }
+    if (result_code) {
+      break;
     }
 
     p = pnext;
@@ -972,6 +1003,9 @@ bool XexModule::Load(const std::string_view name, const std::string_view path,
                      const void* xex_addr, size_t xex_length) {
   auto src_header = reinterpret_cast<const xex2_header*>(xex_addr);
 
+  if (xex_length < sizeof(src_header->magic)) {
+    return false;
+  }
   switch (src_header->magic) {
     case kXEX0Signature:
       XELOGE("XEX0 format not supported");
@@ -999,6 +1033,12 @@ bool XexModule::Load(const std::string_view name, const std::string_view path,
     default:
       XELOGE("XEX format not supported");
       return false;
+  }
+
+  // Everything below reads the header as the file gives it.
+  if (const char* problem = XexHeaderProblem(xex_addr, xex_length)) {
+    XELOGE("XEX {}: {}", path, problem);
+    return false;
   }
 
   assert_false(loaded_);
