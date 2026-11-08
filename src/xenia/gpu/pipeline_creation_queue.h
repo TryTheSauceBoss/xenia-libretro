@@ -155,8 +155,20 @@ class PipelineCreationQueue {
     PushRequest(std::move(request), false);
   }
 
-  // Wakes a creation thread without waiting for it.
-  void Notify() { cond_.notify_one(); }
+  // Wakes a creation thread without waiting for it, when there is queued work.
+  // Every push already wakes one, and they check the queue before waiting, so
+  // with nothing queued this would wake a thread for nothing - a futex call on
+  // the command thread at every submission's end (from Xendroid+: 4.3% of the
+  // command thread's samples in Need for Speed: Most Wanted).
+  void Notify() {
+    {
+      std::lock_guard<std::mutex> lock(lock_);
+      if (queue_.empty()) {
+        return;
+      }
+    }
+    cond_.notify_one();
+  }
 
   // Finishes a storage warm-up queued with PushUnordered. When blocking, or
   // with no creation threads to leave it to, it's created here with |context|.
