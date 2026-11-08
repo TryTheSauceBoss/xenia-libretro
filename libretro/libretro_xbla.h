@@ -18,11 +18,16 @@ namespace xbla {
 // it works, the console's own (<Title ID>/000D0000/<package>) included.
 std::filesystem::path folder(const std::filesystem::path &root);
 
-// Walks folder(root) for game packages (Arcade titles, Games on Demand,
-// installed games, demos) and writes "<game name> [<Title ID>].m3u" for each
-// in the folder itself, pointing at the package; a shortcut whose package is
-// gone is deleted. Returns how many games it found. Bounded: depth 8, 20000
-// entries. Each shortcut written or removed is told to log.
+// <system>/Xenia-Edge/xbla_folders.txt: more folders to look in, one a line
+// (an SD card's, say); written with only comments when missing.
+std::filesystem::path folders_file(const std::filesystem::path &root);
+
+// Walks folder(root) and the folders listed in folders_file(root) for game
+// packages (Arcade titles, Games on Demand, installed games, demos) and writes
+// "<game name> [<Title ID>].m3u" for each in folder(root), pointing at the
+// package; a shortcut whose package is gone is deleted, unless a listed
+// folder could not be opened. Returns how many games it found. Bounded: depth
+// 8, 20000 entries a folder. Each shortcut written or removed is told to log.
 using Log = std::function<void(const std::string &)>;
 int make_shortcuts(const std::filesystem::path &root, const Log &log);
 
