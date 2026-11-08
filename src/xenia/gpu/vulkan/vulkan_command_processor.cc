@@ -4233,12 +4233,30 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
     }
   } else {
     std::pair<VkBuffer, VkDeviceSize> index_buffer;
+    const VkIndexType index_type =
+        primitive_processing_result.host_index_format ==
+                xenos::IndexFormat::kInt16
+            ? VK_INDEX_TYPE_UINT16
+            : VK_INDEX_TYPE_UINT32;
+    const uint32_t index_size_log2 = index_type == VK_INDEX_TYPE_UINT16 ? 1 : 2;
+    // Guest DMA indices (from Xendroid+): the shared memory buffer stays bound
+    // at 0 and the draw starts at the guest index base with firstIndex, so
+    // draws from different parts of it do not rebind it (Forza Horizon: 2726
+    // index buffer binds a frame down to 157). A base not aligned to the
+    // index size is bound at the base as before.
+    uint32_t first_index = 0;
     switch (primitive_processing_result.index_buffer_type) {
-      case PrimitiveProcessor::ProcessedIndexBufferType::kGuestDMA:
+      case PrimitiveProcessor::ProcessedIndexBufferType::kGuestDMA: {
         index_buffer.first = route_to_host ? shared_memory_->host_buffer()
                                            : shared_memory_->buffer();
-        index_buffer.second = primitive_processing_result.guest_index_base;
-        break;
+        const uint32_t base = primitive_processing_result.guest_index_base;
+        if (!(base & ((UINT32_C(1) << index_size_log2) - 1))) {
+          index_buffer.second = 0;
+          first_index = base >> index_size_log2;
+        } else {
+          index_buffer.second = base;
+        }
+      } break;
       case PrimitiveProcessor::ProcessedIndexBufferType::kHostConverted:
         index_buffer = primitive_processor_->GetConvertedIndexBuffer(
             primitive_processing_result.host_index_buffer_handle);
@@ -4252,18 +4270,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
         assert_unhandled_case(primitive_processing_result.index_buffer_type);
         return false;
     }
-    deferred_command_buffer_.CmdVkBindIndexBuffer(
-        index_buffer.first, index_buffer.second,
-        primitive_processing_result.host_index_format ==
-                xenos::IndexFormat::kInt16
-            ? VK_INDEX_TYPE_UINT16
-            : VK_INDEX_TYPE_UINT32);
+    // Bound only when it differs from what the submission's command buffer
+    // has.
+    if (current_index_buffer_ != index_buffer.first ||
+        current_index_buffer_offset_ != index_buffer.second ||
+        current_index_type_ != index_type) {
+      deferred_command_buffer_.CmdVkBindIndexBuffer(
+          index_buffer.first, index_buffer.second, index_type);
+      current_index_buffer_ = index_buffer.first;
+      current_index_buffer_offset_ = index_buffer.second;
+      current_index_type_ = index_type;
+    }
     if (predicate_buffer != VK_NULL_HANDLE) {
       deferred_command_buffer_.CmdVkBeginConditionalRenderingEXT(
           predicate_buffer, predicate_offset, 0);
     }
     deferred_command_buffer_.CmdVkDrawIndexed(
-        primitive_processing_result.host_draw_vertex_count, 1, 0, 0, 0);
+        primitive_processing_result.host_draw_vertex_count, 1, first_index, 0,
+        0);
     if (predicate_buffer != VK_NULL_HANDLE) {
       deferred_command_buffer_.CmdVkEndConditionalRenderingEXT();
     }
@@ -5585,6 +5609,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
     current_external_compute_pipeline_ = VK_NULL_HANDLE;
     current_guest_graphics_pipeline_layout_ = nullptr;
     current_graphics_descriptor_sets_bound_up_to_date_ = 0;
+    current_index_buffer_ = VK_NULL_HANDLE;
+    current_index_buffer_offset_ = 0;
+    current_index_type_ = VK_INDEX_TYPE_MAX_ENUM;
 
     primitive_processor_->BeginSubmission();
 

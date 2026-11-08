@@ -1021,6 +1021,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
   // (current_guest_graphics_pipeline_ is VK_NULL_HANDLE in this case).
   // TODO(Triang3l): Change to a deferred compilation handle.
   VkPipeline current_guest_graphics_pipeline_;
+  // The index buffer bound in the current submission's command buffer:
+  // guest DMA index buffers are bound at the start of the shared memory
+  // buffer and selected with firstIndex, all rebound only when they change.
+  VkBuffer current_index_buffer_ = VK_NULL_HANDLE;
+  VkDeviceSize current_index_buffer_offset_ = 0;
+  VkIndexType current_index_type_ = VK_INDEX_TYPE_MAX_ENUM;
   VkPipeline current_external_graphics_pipeline_;
   VkPipeline current_external_compute_pipeline_;
 
