@@ -48,6 +48,15 @@ DEFINE_bool(
     "1.3 or VK_KHR_dynamic_rendering extension support.",
     "Vulkan");
 
+DEFINE_bool(
+    vulkan_skip_redundant_fetch_constant_writes, true,
+    "Don't invalidate texture bindings and the fetch and bool/loop constant "
+    "buffers when a register write doesn't change the register's value. "
+    "Games commonly write the same fetch constants again every draw, and what "
+    "is derived from them depends only on the register contents (from "
+    "Xendroid+).",
+    "Vulkan");
+
 DEFINE_bool(vulkan_depth_bias_force_unorm, true,
             "Apply the depth bias in constant units on float depth buffers "
             "where VK_EXT_depth_bias_control supports it, so the bias keeps "
@@ -1649,6 +1658,19 @@ void VulkanCommandProcessor::ShutdownContext() {
 }
 
 void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+  // Fetch (0x4800-0x48BF) and bool/loop (0x4900-0x4927) constants: what is
+  // derived from them (texture bindings, the fetch and bool/loop constant
+  // buffers) depends only on the register values, and games commonly write
+  // the same constants again every draw - a write of the value already there
+  // dirties nothing (from Xendroid+). Read before the base class stores the
+  // new value; the registers between the two ranges don't use the flag.
+  bool constant_value_unchanged = false;
+  if (index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
+      index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31 &&
+      cvars::vulkan_skip_redundant_fetch_constant_writes) {
+    constant_value_unchanged = register_file_->values[index] == value;
+  }
+
   CommandProcessor::WriteRegister(index, value);
 
   if (index >= XE_GPU_REG_SHADER_CONSTANT_000_X &&
@@ -1673,10 +1695,15 @@ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
     }
   } else if (index >= XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
              index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31) {
-    current_constant_buffers_up_to_date_ &=
-        ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop);
+    if (!constant_value_unchanged) {
+      current_constant_buffers_up_to_date_ &=
+          ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop);
+    }
   } else if (index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
              index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5) {
+    if (constant_value_unchanged) {
+      return;
+    }
     current_constant_buffers_up_to_date_ &=
         ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch);
     if (texture_cache_) {
