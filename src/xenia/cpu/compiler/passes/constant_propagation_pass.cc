@@ -71,8 +71,6 @@ bool ConstantPropagationPass::Run(HIRBuilder* builder, bool& result) {
   //   v2 = 0
 
   result = false;
-  const bool dynamic_code =
-      (builder->attributes() & FUNCTION_ATTRIB_DYNAMIC_CODE) != 0;
   auto block = builder->first_block();
   while (block) {
     for (auto i = block->instr_head; i; i = i->next) {
@@ -259,9 +257,7 @@ bool ConstantPropagationPass::Run(HIRBuilder* builder, bool& result) {
           break;
         case OPCODE_LOAD:
         case OPCODE_LOAD_OFFSET:
-          // Dynamic code may run in user mode, where a constant address isn't
-          // the kernel's MMIO range or read-only page of that number.
-          if (i->src1.value->IsConstant() && !dynamic_code) {
+          if (i->src1.value->IsConstant()) {
             assert_false(i->flags & LOAD_STORE_BYTE_SWAP);
             auto memory = processor_->memory();
             auto address = i->src1.value->constant.i32;
@@ -323,8 +319,7 @@ bool ConstantPropagationPass::Run(HIRBuilder* builder, bool& result) {
           break;
         case OPCODE_STORE:
         case OPCODE_STORE_OFFSET:
-          if (cvars::inline_mmio_access && i->src1.value->IsConstant() &&
-              !dynamic_code) {
+          if (cvars::inline_mmio_access && i->src1.value->IsConstant()) {
             auto address = i->src1.value->constant.i32;
             if (i->opcode->num == OPCODE_STORE_OFFSET) {
               address += i->src2.value->constant.i32;
