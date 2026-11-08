@@ -799,9 +799,7 @@ spv::Id SpirvShaderTranslator::ProcessVectorAluOperation(
           used_result_components &
           ~instr.vector_operands[0].GetIdenticalComponents(
               instr.vector_operands[1]);
-      // Like ZeroIfAnyOperandIsZero, skipped with the multiply-zero relaxation.
-      if (multiplicands_different &&
-          !(math_relaxations_ & kMathRelaxationMultiplyZero)) {
+      if (multiplicands_different) {
         // Shader Model 3: +0 or denormal * anything = +-0.
         spv::Id different_operands[2] = {multiplicands[0], multiplicands[1]};
         spv::Id different_result = result;
