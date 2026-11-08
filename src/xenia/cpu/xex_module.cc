@@ -670,6 +670,17 @@ int XexModule::ReadImageBasicCompressed(const void* xex_addr,
   uint32_t uncompressed_size = 0;
 
   auto* file_info = opt_file_format_info();
+  // The block list comes from the file and must lie inside the header that was
+  // read, or both loops below read past it.
+  const uintptr_t header_begin = uintptr_t(xex_header_mem_.data());
+  const uintptr_t header_end = header_begin + xex_header_mem_.size();
+  const uintptr_t info_begin = uintptr_t(file_info);
+  if (!file_info || info_begin < header_begin || info_begin > header_end ||
+      header_end - info_begin < 8 || file_info->info_size < 8 ||
+      file_info->info_size > header_end - info_begin) {
+    XELOGE("XEX: the basic compression block list is outside the header");
+    return 1;
+  }
   auto& comp_info = file_info->compression_info.basic;
 
   uint32_t block_count = (file_info->info_size - 8) / 8;
@@ -716,6 +727,7 @@ int XexModule::ReadImageBasicCompressed(const void* xex_addr,
     if (data_size > exe_length - source_offset || dest_offset > total_size ||
         data_size > total_size - dest_offset) {
       XELOGE("XEX basic compression block {} is out of bounds", n);
+      mbedtls_aes_free(&context);
       return 1;
     }
 
