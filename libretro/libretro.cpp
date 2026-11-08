@@ -111,6 +111,7 @@ DECLARE_bool(disable_context_promotion);
 #include "libretro_hid.h"
 #include "libretro_gamedb.h"
 #include "libretro_disc.h"
+#include "libretro_xbla.h"
 
 // The Vulkan functions this file calls on RetroArch's device, from RetroArch's
 // own loader through the HW render interface: the core links no Vulkan loader
@@ -2012,6 +2013,18 @@ RETRO_API void retro_init(void) {
     core_state.audio_enabled    = true;
     core_state.pal_mode         = false;
 
+    // Xbox Live Arcade and Games on Demand packages have no file extension,
+    // which RetroArch's file browser hides: the ones in system/Xenia-Edge/xbla
+    // get an .m3u each, there, before the player picks content
+    if (core_state.system_dir[0]) {
+        const int games = xbla::make_shortcuts(xenia_root_dir(),
+            [](const std::string &line) {
+                xenia_log(RETRO_LOG_INFO, "%s\n", line.c_str());
+            });
+        if (games)
+            xenia_log(RETRO_LOG_INFO, "XBLA: %d game(s) in %s\n", games,
+                      xe::path_to_utf8(xbla::folder(xenia_root_dir())).c_str());
+    }
 }
 
 RETRO_API void retro_deinit(void) {

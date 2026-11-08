@@ -21,6 +21,8 @@ The core option Graphics API picks Xenia's GPU backend: Vulkan, or on Windows Di
 
 Xbox 360 games as a disc image (`.iso`), an executable (`.xex`), or a `.zar` / `.xcp` package. No BIOS or firmware is needed.
 
+Xbox Live Arcade and Games on Demand games are packages without a file extension, which RetroArch's file browser does not show. Put them in `system/Xenia-Edge/xbla/`, in any layout (the console's own `<Title ID>/000D0000/<package>` is fine): each time RetroArch loads the core, it writes `<game name> [<Title ID>].m3u` for each game in that folder, and those are opened like any other game. The core rewrites or deletes its own `.m3u` files as the packages change, and leaves other files there alone.
+
 Original Xbox games run through XeFu, the Xbox 360's own emulator of the original Xbox, which upstream Xenia Edge can run. It needs XeFu's files from a console (`xbox.xex` and the `xefu*.xex` builds of the system partition's `Compatibility` folder) in `<system>/Xenia-Edge/xefu/`; the game is opened as a disc image (`.iso`), a full dump or one rebuilt to the game partition alone. Only the games the console itself could run have a chance.
 
 Everything the core keeps is in `system/Xenia-Edge/`: saves, title updates and DLC under `content/`, laid out as in standalone Xenia's content folder; the shader and other caches under `cache/`; and Xenia's log, `xenia.log` (none with Log Level None, the default). Errors and warnings from it also appear in RetroArch's log. The core option Apply Title Updates turns updates off.
