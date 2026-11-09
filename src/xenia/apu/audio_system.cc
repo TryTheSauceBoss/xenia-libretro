@@ -17,6 +17,8 @@
 
 #if XE_PLATFORM_ANDROID
 #include <dirent.h>
+#include <sys/resource.h>
+#include <cerrno>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <algorithm>
@@ -255,6 +257,14 @@ void AudioSystem::WorkerThreadMain() {
   Initialize();
 #if XE_PLATFORM_ANDROID
   AudioPerformanceHint audio_perf_hint;
+  // From Xendroid+, like the XMA decoder: XThread's priorities map to nice
+  // values below the Android default, and the guest's audio callback runs
+  // here on a 5.33 ms deadline.
+  errno = 0;
+  if (setpriority(PRIO_PROCESS, 0, -12) != 0) {
+    XELOGW("Audio Worker: setpriority(-12) failed: errno {} ({})", errno,
+           std::strerror(errno));
+  }
 #endif
 
   // The host mixer releases a client's semaphore on its own coarse cadence,

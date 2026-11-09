@@ -9,6 +9,14 @@
 
 #include "xenia/apu/xma_decoder.h"
 
+#include <cerrno>
+#include <cstring>
+
+#include "xenia/base/platform.h"
+#if XE_PLATFORM_ANDROID
+#include <sys/resource.h>
+#endif
+
 #include "xenia/apu/xma_context.h"
 #include "xenia/apu/xma_context_fake.h"
 #include "xenia/apu/xma_context_master.h"
@@ -203,6 +211,16 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
 }
 
 void XmaDecoder::WorkerThreadMain() {
+#if XE_PLATFORM_ANDROID
+  // From Xendroid+. Set here, not at the creation site: XThread applies its own
+  // priority after Create, and its kNormal maps to nice 4, below the Android
+  // default - a decoder that can't keep up drains the guest's audio queue.
+  errno = 0;
+  if (setpriority(PRIO_PROCESS, 0, -12) != 0) {
+    XELOGW("XMA Decoder: setpriority(-12) failed: errno {} ({})", errno,
+           std::strerror(errno));
+  }
+#endif
   while (worker_running_) {
     // Okay, let's loop through XMA contexts to find ones we need to decode!
     bool did_work = false;

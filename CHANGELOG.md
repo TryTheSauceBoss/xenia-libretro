@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fewer audio dropouts and stalls on Android, from Xendroid+: the audio and XMA decoder threads run at a higher priority than the rest, so a busy phone does not starve them.
 - Steadier speed on Android phones, from Xendroid+: the core tells Android (through its performance hint API, Android 13 and newer) how long the game's audio work takes against its 5.33 ms deadline, so the phone keeps the game's CPU threads on fast enough cores instead of parking them to save power.
 - Faster texture sampling in pixel shaders, from Xendroid+: the signs (plain, gamma) of the first 8 textures a shader reads, and whether any of them scales its values, are baked into each pipeline, so the GPU skips the per-pixel branches that handled them (about 8% less GPU time in Forza Horizon on Adreno). Pipelines are compiled again on the first run after this update.
 - Less CPU time per draw on sampler setup, from Xendroid+: whether a texture can be filtered is worked out straight from its header instead of building its whole texture description for every sampler.
