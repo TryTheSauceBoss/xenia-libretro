@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fixed a crash when a game opens a file relative to a closed or wrong handle, from Xendroid+.
 - Fixed a race on ARM64 that could let two game threads own the same lock at once (a mutant released twice), from Xendroid+.
 - Fewer audio dropouts and stalls on Android, from Xendroid+: the audio and XMA decoder threads run at a higher priority than the rest, so a busy phone does not starve them.
 - Steadier speed on Android phones, from Xendroid+: the core tells Android (through its performance hint API, Android 13 and newer) how long the game's audio work takes against its 5.33 ms deadline, so the phone keeps the game's CPU threads on fast enough cores instead of parking them to save power.
