@@ -381,6 +381,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
   void FlushMemexportStagingReadback();
   void AwaitMemexportSubmission(uint64_t submission) {
     CheckSubmissionCompletionAndDeviceLoss(submission);
+    NoteIfGpuDrained();
+  }
+  // vulkan_drained_submission_draws: after a wait, notes whether the GPU has
+  // nothing left to do (every submission made has completed - the open one, if
+  // any, hasn't been submitted yet).
+  void NoteIfGpuDrained() {
+    if (GetCompletedSubmission() + 1u >= GetCurrentSubmission()) {
+      drained_submission_ = GetCurrentSubmission();
+    }
   }
   // Without the host buffer or zero-copy, export output reaches guest RAM only
   // through the staging copy, which a wait makes.
@@ -554,8 +563,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
   bool EndSubmission(bool is_swap);
   bool AwaitAllQueueOperationsCompletion() {
     CheckSubmissionCompletionAndDeviceLoss(GetCurrentSubmission());
-    return !submission_open_ &&
-           GetCompletedSubmission() + 1u >= GetCurrentSubmission();
+    const bool drained = !submission_open_ &&
+                         GetCompletedSubmission() + 1u >= GetCurrentSubmission();
+    if (drained) {
+      drained_submission_ = GetCurrentSubmission();
+    }
+    return drained;
   }
 
   void ClearTransientDescriptorPools();
@@ -1066,6 +1079,9 @@ class VulkanCommandProcessor final : public CommandProcessor {
   // Draws recorded into the currently open submission, for
   // vulkan_mid_frame_submission_draws.
   uint32_t draws_since_submission_ = 0;
+  // The first submission after the GPU was last awaited until it had nothing
+  // left to do (vulkan_drained_submission_draws).
+  uint64_t drained_submission_ = 0;
   std::vector<uint64_t> texture_set_hash_scratch_;
   // Whether descriptor sets in current_graphics_descriptor_sets_ point to
   // up-to-date data.

@@ -86,6 +86,18 @@ DEFINE_int32(
     "values that are too small hurt tiled (mobile) GPUs. 0 turns it off.",
     "GPU");
 
+DEFINE_int32(
+    vulkan_drained_submission_draws, 100,
+    "If greater than 0, for the first 16 submissions after the command "
+    "processor awaited the GPU until it had nothing left to do (memory export "
+    "output the guest reads, the command processor idle), end and submit the "
+    "current command buffer every this many draws rather than every "
+    "vulkan_mid_frame_submission_draws, so the GPU doesn't idle while the rest "
+    "of the command stream is built. Games that never drain the GPU get no "
+    "extra submissions. Need for Speed: Most Wanted awaits the GPU 3-4 times "
+    "a frame: 11.8-12.1 -> 19.6-19.7 fps with 100 on an Adreno 825.",
+    "GPU");
+
 DEFINE_bool(
     vulkan_float_constants_full_range, true,
     "Give the descriptors of the float constants the range of all 256 (4 KB) "
@@ -4641,12 +4653,23 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
   }
 
   // vulkan_mid_frame_submission_draws: submit every this many draws, so the
-  // GPU starts on the frame while the rest of its commands are being built.
+  // GPU starts on the frame while the rest of its commands are being built
+  // (more often for a while after the GPU was drained -
+  // vulkan_drained_submission_draws).
   // The next draw's BeginSubmission opens a new submission in the same frame.
   ++draws_since_submission_;
-  if (cvars::vulkan_mid_frame_submission_draws > 0 &&
-      draws_since_submission_ >=
-          uint32_t(cvars::vulkan_mid_frame_submission_draws) &&
+  uint32_t submission_draws =
+      uint32_t(std::max(cvars::vulkan_mid_frame_submission_draws, 0));
+  if (cvars::vulkan_drained_submission_draws > 0 &&
+      GetCurrentSubmission() < drained_submission_ + 16) {
+    // Right after the GPU was drained: it waits for this submission.
+    const uint32_t drained_draws =
+        uint32_t(cvars::vulkan_drained_submission_draws);
+    submission_draws = submission_draws
+                           ? std::min(submission_draws, drained_draws)
+                           : drained_draws;
+  }
+  if (submission_draws && draws_since_submission_ >= submission_draws &&
       submission_open_ && !scratch_buffer_used_) {
     EndSubmission(false);
   }
@@ -5528,6 +5551,7 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
 
   if (wait_for_submission > GetCompletedSubmission()) {
     completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
+    NoteIfGpuDrained();
   }
 
   PumpQueryResolves();
@@ -5674,6 +5698,7 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
 
   if (wait_for_submission > GetCompletedSubmission()) {
     completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
+    NoteIfGpuDrained();
   }
 
   PumpQueryResolves();

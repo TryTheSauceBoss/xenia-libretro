@@ -6,7 +6,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 - Faster texture sampling in pixel shaders, from Xendroid+: the signs (plain, gamma) of the first 8 textures a shader reads, and whether any of them scales its values, are baked into each pipeline, so the GPU skips the per-pixel branches that handled them (about 8% less GPU time in Forza Horizon on Adreno). Pipelines are compiled again on the first run after this update.
 - Less CPU time per draw on sampler setup, from Xendroid+: whether a texture can be filtered is worked out straight from its header instead of building its whole texture description for every sampler.
-- The GPU starts on long frames sooner, from Xendroid+: frames with very many draws are sent to the GPU every 1300 draws instead of all at once.
+- The GPU starts on long frames sooner, from Xendroid+: frames with very many draws are sent to the GPU every 1300 draws instead of all at once, and every 100 right after the game made the GPU finish everything (Need for Speed: Most Wanted went from 12 to almost 20 fps with this in Xendroid+).
 - Fixed geometry in games whose pixel shaders read vertex data (such as Lara's clothes stretching in Rise of the Tomb Raider), from Xendroid+: those buffers are now uploaded before the draw too.
 - Fewer texture descriptor writes, from Xendroid+: when draws switch back and forth between a few sets of textures, the set written earlier is bound again instead of writing a new one.
 - Fewer descriptor set rewrites, from Xendroid+: shader constants are always bound with room for all 256 of them, so switching between shaders that read a different number of constants no longer rewrites the set.
