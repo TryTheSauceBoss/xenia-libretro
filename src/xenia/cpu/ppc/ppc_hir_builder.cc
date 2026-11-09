@@ -112,6 +112,9 @@ bool PPCHIRBuilder::Emit(GuestFunction* function, uint32_t flags) {
   if (frontend_->processor()->KeepsContextStores(module)) {
     set_attributes(attributes() | FUNCTION_ATTRIB_KEEP_CONTEXT_STORES);
   }
+  if (frontend_->processor()->IsDynamicCode(module)) {
+    set_attributes(attributes() | FUNCTION_ATTRIB_DYNAMIC_CODE);
+  }
 
   function_ = function;
   dynamic_code_ = frontend_->processor()->IsDynamicCode(module);
