@@ -356,7 +356,21 @@ class Logger {
       // many blocks needed for at least one log line.
       auto next_range = dp::sequence_range(next_sequence, desired_count);
 
+#if XE_PLATFORM_ANDROID
+      // From Xendroid+: the spin wait strategy never blocks - while the log is
+      // idle it yields to the scheduler without end (~6% of a core on a
+      // phone). Nothing needs the lines sooner than a couple of milliseconds
+      // (FatalError still writes everything, through the terminator
+      // ShutdownLogging appends), so poll with sleeps.
+      while (dp::difference(claim_strategy_.wait_until_published(
+                                next_range.last(), last_sequence,
+                                std::chrono::steady_clock::now()),
+                            next_range.last()) < 0) {
+        xe::threading::Sleep(std::chrono::milliseconds(2));
+      }
+#else
       claim_strategy_.wait_until_published(next_range.last(), last_sequence);
+#endif
 
       size_t read_count = 0;
       auto available_range = next_range;
