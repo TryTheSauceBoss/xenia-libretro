@@ -4,7 +4,7 @@ A [libretro](https://www.libretro.com/) core of [Xenia Edge](https://github.com/
 
 It is a core of its own, installed beside the plain Xenia Edge core rather than in its place: it shows as "Xenia Edge (Xendroid+)" in RetroArch, which keeps its options and overrides apart, its file is `xenia_edge_xendroid_libretro`, and it keeps everything in `system/Xenia-Edge-Xendroid/`. To carry saves and profiles over from Xenia Edge, copy `system/Xenia-Edge/content/` (and `xbla_folders.txt` or `xbl_profilename.txt`, if you made them) into `system/Xenia-Edge-Xendroid/`.
 
-The emulator is upstream's: this repository follows xenia-edge and adds the libretro frontend in `libretro/`. It holds the core only; upstream's standalone UI, packaging and CI are not part of it (the paths are listed in `.upstream-excluded`). The version the core reports is upstream's, with the upstream commit it is merged to (`upstream.version`). The core is currently on xenia-edge commit 8dc77b0 of 7 October 2026.
+The emulator is upstream's: this repository follows xenia-edge and adds the libretro frontend in `libretro/`. It holds the core only; upstream's standalone UI, packaging and CI are not part of it (the paths are listed in `.upstream-excluded`). The version the core reports is upstream's, with the upstream commit it is merged to (`upstream.version`). The core is currently on xenia-edge commit 0b9bcb5 of 9 November 2026.
 
 ## Downloads
 

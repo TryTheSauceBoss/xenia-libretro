@@ -53,8 +53,11 @@
 #include "xenia/kernel/user_module.h"
 #include "xenia/kernel/xam/achievement_manager.h"
 #include "xenia/kernel/xam/content_manager.h"
+#include "xenia/kernel/xam/indie_game.h"
+#include "xenia/kernel/xam/system_manifest.h"
 #include "xenia/kernel/xam/title_image_device.h"
 #include "xenia/kernel/xam/ui/disc_swap_ui.h"
+#include "xenia/kernel/xam/xam_content_device.h"
 #include "xenia/kernel/xam/xam_module.h"
 #include "xenia/kernel/xam/xam_state.h"
 #include "xenia/kernel/xam/xdbf/spa_info.h"
@@ -768,6 +771,7 @@ X_STATUS Emulator::LaunchPath(const std::filesystem::path& path,
   }
   // A file an earlier launch missed says nothing about this one.
   missing_xefu_file_.clear();
+  indie_package_.reset();
   // The drive starts empty.
   {
     std::lock_guard<std::mutex> lock(inserted_disc_mutex_);
@@ -776,6 +780,12 @@ X_STATUS Emulator::LaunchPath(const std::filesystem::path& path,
 
   if (!package_path.empty()) {
     return LaunchDiscPackage(path, package_path);
+  }
+
+  // A folder is an indie game's extracted package.
+  std::error_code ec;
+  if (std::filesystem::is_directory(path, ec)) {
+    return LaunchIndieGame(path);
   }
 
   X_STATUS mount_result = X_STATUS_SUCCESS;
@@ -798,6 +808,13 @@ X_STATUS Emulator::LaunchPath(const std::filesystem::path& path,
       if (header && header->content_metadata.content_type.get() ==
                         XContentType::kXboxTitle) {
         return LaunchXboxOriginal(path, "default.xbe");
+      }
+      if (header &&
+          header->content_metadata.content_type.get() ==
+              XContentType::kMarketplaceContent &&
+          header->content_metadata.execution_info.title_id.get() ==
+              kernel::kXN_2002) {
+        return LaunchIndieGame(path);
       }
       mount_result = MountPath(path, "\\Device\\Package_0");
       return mount_result ? mount_result : LaunchStfsContainer(path);
@@ -1095,6 +1112,70 @@ X_STATUS Emulator::LaunchXboxOriginal(const std::filesystem::path& path,
   loader_data.launch_data_present = true;
 
   InsertXboxGame(path);
+  X_STATUS result = MountPath(launcher, "\\Device\\Package_0");
+  return result ? result : LaunchXexFile(launcher);
+}
+
+X_STATUS Emulator::LaunchIndieGame(const std::filesystem::path& path) {
+  // The XNA title launcher runs the package its launch data names. One outside
+  // the launcher's content, or with a name it can't take, goes by a game
+  // library name.
+  const auto package = path.has_filename() ? path : path.parent_path();
+  auto game = kernel::xam::ReadIndieGame(package);
+  if (!game) {
+    XELOGE("{} isn't an indie game", xe::strip_pii(xe::path_to_utf8(package)));
+    return X_STATUS_NOT_SUPPORTED;
+  }
+  std::error_code ec;
+  const bool installed = std::filesystem::equivalent(
+      package.parent_path(), kernel_state_->content_manager()->IndieGamesPath(),
+      ec);
+  // An extracted package's license is in the header file its install wrote.
+  if (!installed && std::filesystem::is_directory(package, ec)) {
+    XELOGE("The indie game folder {} only runs from where it was installed",
+           xe::strip_pii(xe::path_to_utf8(package)));
+    return X_STATUS_NOT_SUPPORTED;
+  }
+  constexpr uint32_t kDeviceId =
+      static_cast<uint32_t>(kernel::xam::DummyDeviceId::HDD);
+  const std::string file_name = xe::path_to_utf8(package.filename());
+  std::vector<uint8_t> launch_data;
+  if (installed &&
+      kernel::xam::ContentManager::IsValidPackageFileName(file_name)) {
+    launch_data = kernel::xam::MakeIndieGameLaunchData(file_name, kDeviceId);
+  }
+  const bool library_name = launch_data.empty();
+  if (library_name) {
+    launch_data = kernel::xam::MakeIndieGameLaunchData(
+        kernel::xam::ContentManager::LibraryContentFileName(game->title_id, 0),
+        kDeviceId);
+  }
+  constexpr std::string_view kLauncherName = "xna_titlelauncher.xex";
+  const auto sysext = system_files_path() / "sysext";
+  const auto version = kernel::xam::FindSystemManifestFile(
+      xe::filesystem::ReadAllBytes(sysext / kernel::xam::kSystemManifestName),
+      kLauncherName);
+  const std::filesystem::path launcher =
+      version ? xe::filesystem::FindChildIgnoringCase(
+                    sysext / kernel::xam::SystemExtFolderName(*version),
+                    kLauncherName)
+              : std::filesystem::path();
+  if (launcher.empty()) {
+    XELOGE("Indie games run through {}, which comes with the system files",
+           kLauncherName);
+    return X_STATUS_NOT_SUPPORTED;
+  }
+  auto xam = kernel_state_->GetKernelModule<kernel::xam::XamModule>("xam.xex");
+  if (!xam) {
+    return X_STATUS_UNSUCCESSFUL;
+  }
+  auto& loader_data = xam->loader_data();
+  loader_data.launch_data = std::move(launch_data);
+  loader_data.launch_data_present = true;
+  if (library_name) {
+    indie_package_ = std::move(game);
+  }
+
   X_STATUS result = MountPath(launcher, "\\Device\\Package_0");
   return result ? result : LaunchXexFile(launcher);
 }
@@ -2141,6 +2222,98 @@ bool Emulator::ExceptionCallbackThunk(Exception* ex, void* data) {
   }
 }
 
+// The crash dump of a guest thread, with the registers in its context.
+static std::string FormatGuestCrashDump(kernel::XThread* thread,
+                                        std::string_view pc,
+                                        std::string_view fault) {
+  auto context = thread->thread_state()->context();
+  std::string crash_msg;
+  crash_msg.append("==== CRASH DUMP ====\n");
+  // Fiber-backed guest threads have no host thread, so report 0 for the host id
+  // and avoid null-dereferencing thread() inside the crash handler.
+  crash_msg.append(
+      fmt::format("Thread ID (Host: 0x{:08X} / Guest: 0x{:08X})\n",
+                  thread->thread() ? thread->thread()->system_id() : 0,
+                  thread->thread_id()));
+  crash_msg.append(fmt::format("Thread Handle: 0x{:08X}\n", thread->handle()));
+  crash_msg.append(fmt::format("PC: {}\n", pc));
+  // Usually the caller, which a crash in a shared stub needs.
+  crash_msg.append(fmt::format("LR: 0x{:08X}\n", uint32_t(context->lr)));
+  if (!fault.empty()) {
+    crash_msg.append(fmt::format("{}\n", fault));
+  }
+  crash_msg.append("Registers:\n");
+  for (int i = 0; i < 32; i++) {
+    crash_msg.append(fmt::format(" r{:<3} = {:016X}\n", i, context->r[i]));
+  }
+  for (int i = 0; i < 32; i++) {
+    crash_msg.append(fmt::format(" f{:<3} = {:016X} = (double){} = (float){}\n",
+                                 i,
+                                 *reinterpret_cast<uint64_t*>(&context->f[i]),
+                                 context->f[i], *(float*)&context->f[i]));
+  }
+  for (int i = 0; i < 128; i++) {
+    crash_msg.append(
+        fmt::format(" v{:<3} = [0x{:08X}, 0x{:08X}, 0x{:08X}, 0x{:08X}]\n", i,
+                    context->v[i].u32[0], context->v[i].u32[1],
+                    context->v[i].u32[2], context->v[i].u32[3]));
+  }
+  return crash_msg;
+}
+
+void Emulator::HaltCrashedGuestThread(uint32_t pc, std::string_view fault) {
+  auto* thread = kernel::XThread::GetCurrentThread();
+  ReportGuestCrash(
+      FormatGuestCrashDump(thread, fmt::format("0x{:08X}", pc), fault));
+  if (thread->fiber()) {
+    HaltCrashedFiberThunk();
+  }
+  thread->Suspend(nullptr);
+  while (true) {
+    xe::threading::NanoSleep(int64_t(1'000'000'000));
+  }
+}
+
+// A guest load or store that faulted, handed from the exception handler to the
+// thunk below on the same thread.
+struct PendingDataFault {
+  Emulator* emulator;
+  uint32_t pc;
+  bool is_store;
+  uint32_t address;
+  uint64_t host_address;
+};
+static thread_local PendingDataFault pending_data_fault;
+
+// VEH-resume target for a guest load or store that faulted. Guest code can't
+// run inside the vectored exception handler, so the guest's handlers run here,
+// on the faulting thread. One that raises an exception, as the CLR's does for a
+// NullReferenceException, continues the thread wherever that lands. Otherwise
+// the thread is halted as a crash.
+[[noreturn]] static void GuestDataFaultThunk() {
+  const PendingDataFault fault = pending_data_fault;
+  auto* thread = kernel::XThread::GetCurrentThread();
+  auto* context = thread->thread_state()->context();
+  auto* processor = fault.emulator->processor();
+  const uint32_t resume_address = processor->data_fault_hook()(
+      context, fault.pc, fault.is_store, fault.address);
+  if (resume_address) {
+    // The context holds the handler's CONTEXT record. The faulting function's
+    // host frame can't be re-entered mid-way, so the code goes on as a call,
+    // which suits a handler that sends the thread to a helper that raises an
+    // exception. If it returns, there is nowhere to return it to.
+    processor->ExecuteRaw(thread->thread_state(), resume_address);
+    XELOGE(
+        "Guest access violation at {:08X}: the code the handler continued at, "
+        "{:08X}, returned",
+        fault.pc, resume_address);
+  }
+  fault.emulator->HaltCrashedGuestThread(
+      fault.pc,
+      fmt::format("Access Violation: {} at 0x{:016X}",
+                  fault.is_store ? "write" : "read", fault.host_address));
+}
+
 bool Emulator::ExceptionCallback(Exception* ex) {
   // In-process relaunch/reset frees state under still-running guest threads;
   // their faults are expected, so park them instead of crashing. The teardown
@@ -2264,28 +2437,35 @@ bool Emulator::ExceptionCallback(Exception* ex) {
 
   auto guest_function = code_cache->LookupFunction(ex->pc());
 
-  auto context = current_thread->thread_state()->context();
-
-  std::string crash_msg;
-  crash_msg.append("==== CRASH DUMP ====\n");
-  // Fiber-backed guest threads have no host thread, so report 0 for the host id
-  // and avoid null-dereferencing thread() inside the crash handler.
-  crash_msg.append(fmt::format(
-      "Thread ID (Host: 0x{:08X} / Guest: 0x{:08X})\n",
-      current_thread->thread() ? current_thread->thread()->system_id() : 0,
-      current_thread->thread_id()));
-  crash_msg.append(
-      fmt::format("Thread Handle: 0x{:08X}\n", current_thread->handle()));
-  if (guest_function) {
-    crash_msg.append(
-        fmt::format("PC: 0x{:08X}\n",
-                    guest_function->MapMachineCodeToGuestAddress(ex->pc())));
-  } else {
-    crash_msg.append(fmt::format(
-        "PC: unavailable (unmapped host JIT address 0x{:016X})\n", ex->pc()));
+  // A load or store whose address the guest can be told: the console's kernel
+  // dispatches the access violation to the frame-based handlers on the stack,
+  // and the CLR, for one, turns a read through a null reference into a
+  // NullReferenceException there.
+  const uint64_t fault_offset =
+      ex->fault_address() -
+      reinterpret_cast<uint64_t>(memory()->virtual_membase());
+  if (ex->code() == Exception::Code::kAccessViolation && guest_function &&
+      processor()->data_fault_hook() && fault_offset <= UINT32_MAX) {
+    const uint32_t pc = guest_function->MapMachineCodeToGuestAddress(ex->pc());
+    const bool is_store = ex->access_violation_operation() ==
+                          Exception::AccessViolationOperation::kWrite;
+    XELOGW("Guest {} at {:08X} faulted at {:08X}, delivering it to the guest",
+           is_store ? "store" : "load", pc, uint32_t(fault_offset));
+    pending_data_fault = {this, pc, is_store, uint32_t(fault_offset),
+                          ex->fault_address()};
+    DivertToThunk(ex, &GuestDataFaultThunk);
+    return true;
   }
-  // Usually the caller, which a crash in a shared stub needs.
-  crash_msg.append(fmt::format("LR: 0x{:08X}\n", uint32_t(context->lr)));
+
+  std::string pc;
+  if (guest_function) {
+    pc = fmt::format("0x{:08X}",
+                     guest_function->MapMachineCodeToGuestAddress(ex->pc()));
+  } else {
+    pc = fmt::format("unavailable (unmapped host JIT address 0x{:016X})",
+                     ex->pc());
+  }
+  std::string fault;
   if (ex->code() == Exception::Code::kAccessViolation) {
     const char* op_str = "unknown";
     if (ex->access_violation_operation() ==
@@ -2295,27 +2475,28 @@ bool Emulator::ExceptionCallback(Exception* ex) {
                Exception::AccessViolationOperation::kWrite) {
       op_str = "write";
     }
-    crash_msg.append(fmt::format("Access Violation: {} at 0x{:016X}\n", op_str,
-                                 ex->fault_address()));
+    fault = fmt::format("Access Violation: {} at 0x{:016X}", op_str,
+                        ex->fault_address());
   } else if (ex->code() == Exception::Code::kIllegalInstruction) {
-    crash_msg.append("Illegal Instruction\n");
+    fault = "Illegal Instruction";
   }
-  crash_msg.append("Registers:\n");
-  for (int i = 0; i < 32; i++) {
-    crash_msg.append(fmt::format(" r{:<3} = {:016X}\n", i, context->r[i]));
+  ReportGuestCrash(FormatGuestCrashDump(current_thread, pc, fault));
+
+  // Halt the crashed thread without unwinding the rest of the emulator. Host
+  // mode suspends self. Fiber mode diverts the resume PC to a halt thunk, since
+  // calling Suspend here would yield from inside the exception handler.
+  if (current_thread->fiber()) {
+    DivertToThunk(ex, &HaltCrashedFiberThunk);
+    return true;
   }
-  for (int i = 0; i < 32; i++) {
-    crash_msg.append(fmt::format(" f{:<3} = {:016X} = (double){} = (float){}\n",
-                                 i,
-                                 *reinterpret_cast<uint64_t*>(&context->f[i]),
-                                 context->f[i], *(float*)&context->f[i]));
-  }
-  for (int i = 0; i < 128; i++) {
-    crash_msg.append(
-        fmt::format(" v{:<3} = [0x{:08X}, 0x{:08X}, 0x{:08X}, 0x{:08X}]\n", i,
-                    context->v[i].u32[0], context->v[i].u32[1],
-                    context->v[i].u32[2], context->v[i].u32[3]));
-  }
+  current_thread->Suspend(nullptr);
+
+  // We should not arrive here!
+  assert_always();
+  return false;
+}
+
+void Emulator::ReportGuestCrash(const std::string& crash_msg) {
   XELOGE("{}", crash_msg);
   FlushLog();
 
@@ -2337,19 +2518,6 @@ bool Emulator::ExceptionCallback(Exception* ex) {
       xe::ui::ImGuiDialog::ShowMessageBox(imgui_drawer_, "Uh-oh!", crash_dlg);
     });
   }
-
-  // Halt the crashed thread without unwinding the rest of the emulator. Host
-  // mode suspends self. Fiber mode diverts the resume PC to a halt thunk, since
-  // calling Suspend here would yield from inside the exception handler.
-  if (current_thread->fiber()) {
-    DivertToThunk(ex, &HaltCrashedFiberThunk);
-    return true;
-  }
-  current_thread->Suspend(nullptr);
-
-  // We should not arrive here!
-  assert_always();
-  return false;
 }
 
 void Emulator::WaitUntilExit() {
@@ -2612,6 +2780,7 @@ void Emulator::ResetTitleState() {
   title_id_ = std::nullopt;
   title_name_ = "";
   title_version_ = "";
+  indie_game_.reset();
   if (display_window_) {
     display_window_->SetIcon(nullptr, 0);
   }
@@ -2918,6 +3087,31 @@ X_STATUS Emulator::PrepareLaunch(const std::filesystem::path& path,
     if (display_window_ && !xbox_game_->icon_png.empty()) {
       display_window_->SetIcon(xbox_game_->icon_png.data(),
                                xbox_game_->icon_png.size());
+    }
+  }
+
+  // The XNA title launcher goes by the indie game it runs.
+  if (title_id_ == kernel::kXN_2002) {
+    const std::string file_name = xam ? kernel::xam::IndieGameLaunchFileName(
+                                            xam->loader_data().launch_data)
+                                      : std::string();
+    if (indie_package_ &&
+        file_name == kernel::xam::ContentManager::LibraryContentFileName(
+                         indie_package_->title_id, 0)) {
+      indie_game_ = indie_package_;
+    } else if (!file_name.empty()) {
+      const auto package =
+          kernel_state_->content_manager()->IndieGamePackagePath(file_name);
+      if (!package.empty()) {
+        indie_game_ = kernel::xam::ReadIndieGame(package);
+      }
+    }
+    if (indie_game_ && !indie_game_->name.empty()) {
+      title_name_ = indie_game_->name;
+    }
+    if (indie_game_ && display_window_ && !indie_game_->icon.empty()) {
+      display_window_->SetIcon(indie_game_->icon.data(),
+                               indie_game_->icon.size());
     }
   }
 
