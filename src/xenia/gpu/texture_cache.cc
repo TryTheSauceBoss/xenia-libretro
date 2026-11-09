@@ -293,6 +293,7 @@ void TextureCache::CompletedSubmissionUpdated(
     if (found_texture_it != textures_.end()) {
       assert_true(found_texture_it->second.get() == texture);
       textures_.erase(found_texture_it);
+      ++texture_destroy_generation_;
       // `texture` is invalid now.
     }
   }
@@ -827,6 +828,7 @@ void TextureCache::DestroyAllTextures(bool from_destructor) {
     entry.texture = nullptr;
   }
   textures_.clear();
+  ++texture_destroy_generation_;
   COUNT_profile_set("gpu/texture_cache/textures", 0);
 }
 
