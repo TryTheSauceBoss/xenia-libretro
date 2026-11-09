@@ -59,6 +59,12 @@
 #define HWCAP_EVTSTRM (1 << 2)
 #endif
 
+DEFINE_bool(wfe_yield, true,
+            "ARM64: wait for the generic-timer event stream (WFE) instead of "
+            "calling sched_yield() in guest yield/delay(0) spin loops. "
+            "Avoids the syscall and lets the core idle in low power between "
+            "polls (~10 kHz). From Xendroid+.",
+            "CPU");
 DEFINE_bool(wfe_precise_sleep, false,
             "ARM64: busy-wait PreciseSleep's sub-millisecond tail on the "
             "generic-timer event stream (WFE) for exact deadlines. Off by "
@@ -207,7 +213,25 @@ uint32_t current_thread_system_id() {
 }
 
 void MaybeYield() {
+#if defined(__aarch64__) && defined(__linux__)
+  // Every caller is a "burn CPU until some other thread makes progress" loop
+  // (XThread::Delay(0), NtYieldExecution, guest spinlock contention, command
+  // processor stall). With fewer emulator threads than cores there is usually
+  // nothing to yield to, so sched_yield() is pure syscall and scheduler
+  // overhead at full clock. WFE instead stalls the core in low power until the
+  // generic-timer event stream ticks (10 kHz on Linux and Android, so at most
+  // 100us) - only if the event stream exists, otherwise a bare WFE can stall
+  // until the next interrupt (from Xendroid+).
+  static const bool use_wfe =
+      cvars::wfe_yield && (getauxval(AT_HWCAP) & HWCAP_EVTSTRM) != 0;
+  if (use_wfe) {
+    __asm__ __volatile__("wfe" ::: "memory");
+  } else {
+    sched_yield();
+  }
+#else
   sched_yield();
+#endif
   __sync_synchronize();
 }
 
