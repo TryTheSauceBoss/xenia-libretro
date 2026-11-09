@@ -46,6 +46,10 @@ class PPCHIRBuilder : public hir::HIRBuilder {
   // Whether the function is code the guest wrote at runtime.
   bool dynamic_code() const { return dynamic_code_; }
   Function* LookupFunction(uint32_t address);
+  // Expands a linking call to a small straight-line leaf (no branches, traps
+  // or calls, ending in blr) in the same module inline (inline_leaf_calls).
+  // False, with nothing emitted, when the target doesn't qualify.
+  bool TryInlineLeafCall(uint32_t target_address, uint64_t cia);
   Label* LookupLabel(uint32_t address);
 
   Value* LoadLR();
