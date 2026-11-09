@@ -464,6 +464,12 @@ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg,
   if (XFAILED(result)) {
     XELOGE("AudioSystem::RegisterClient: CreateDriver failed for index={}",
            index);
+    // Take the credits back, as UnregisterClient does: left in the semaphore,
+    // the next client of this slot found it full and its own release failed.
+    while (xe::threading::Wait(client_semaphore, false,
+                               std::chrono::milliseconds(0)) ==
+           xe::threading::WaitResult::kSuccess) {
+    }
     clients_lock.unlock();
     memory()->SystemHeapFree(ptr);
     return result;
@@ -546,13 +552,24 @@ bool AudioSystem::GetClientPerformance(size_t index,
 void AudioSystem::UnregisterClient(size_t index) {
   SCOPE_profile_cpu_f("apu");
 
-  assert_true(index < kMaximumClientCount);
+  // The index comes from the guest's handle, as in SubmitFrame: one out of
+  // range was written outside the clients, and a client unregistered twice had
+  // its null driver destroyed (the assert is gone in release builds). From
+  // Xendroid+.
+  if (index >= kMaximumClientCount) {
+    XELOGE("AudioSystem::UnregisterClient: index {} out of range", index);
+    return;
+  }
   AudioDriver* driver_to_destroy;
   {
     std::lock_guard<std::mutex> clients_lock(clients_mutex_);
-    XELOGI(
-        "AudioSystem::UnregisterClient: index={}, driver={:p}", index,
-        index < kMaximumClientCount ? (void*)clients_[index].driver : nullptr);
+    if (!clients_[index].in_use) {
+      XELOGW("AudioSystem::UnregisterClient: client {} is not registered",
+             index);
+      return;
+    }
+    XELOGI("AudioSystem::UnregisterClient: index={}, driver={:p}", index,
+           (void*)clients_[index].driver);
     driver_to_destroy = clients_[index].driver;
     // Leak wrapped_callback_arg: in-flight callback may hold this pointer.
     clients_[index].driver = nullptr;
