@@ -8,7 +8,7 @@
 #
 #   BUILD_DIR=build/windows-x86_64 NUMPROC=8 .ci/build-windows-cross.sh
 #
-# leaves the core at $BUILD_DIR/xenia_edge_libretro.dll.
+# leaves the core at $BUILD_DIR/xenia_edge_xendroid_libretro.dll.
 
 set -euo pipefail
 
@@ -233,5 +233,5 @@ if ! cmake --build "$BUILD_DIR" --target xenia-libretro -- -j "$NUMPROC" ${XE_CR
   fi
   exit 1
 fi
-mv "$(find "$BUILD_DIR" -name xenia_edge_libretro.dll | head -1)" "$BUILD_DIR/xenia_edge_libretro.dll"
-file "$BUILD_DIR/xenia_edge_libretro.dll"
+mv "$(find "$BUILD_DIR" -name xenia_edge_xendroid_libretro.dll | head -1)" "$BUILD_DIR/xenia_edge_xendroid_libretro.dll"
+file "$BUILD_DIR/xenia_edge_xendroid_libretro.dll"
