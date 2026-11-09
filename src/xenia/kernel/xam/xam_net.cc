@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <random>
@@ -1378,9 +1379,42 @@ struct host_set {
   uint32_t count = 0;
   object_ref<XSocket> sockets[64];
 
-  void Load(const x_fd_set* guest_set) {
-    assert_true(guest_set->fd_count < 64);
-    this->count = guest_set->fd_count;
+  // Whether select can take a native handle: still open (another guest thread
+  // can close a socket while select waits, leaving -1) and, on POSIX, below
+  // FD_SETSIZE - bionic's FORTIFY checks abort FD_SET and FD_ISSET otherwise.
+  static bool IsSelectable(uint64_t handle) {
+    if (handle == static_cast<uint64_t>(-1)) {
+      return false;
+    }
+#if !XE_PLATFORM_WIN32
+    if (handle >= FD_SETSIZE) {
+      return false;
+    }
+#endif
+    return true;
+  }
+
+  // POSIX select takes the highest descriptor plus one. The guest's nfds is
+  // for Winsock, which ignores it, and titles pass 0 or anything.
+  int NativeNfds() const {
+    int nfds = 0;
+    for (uint32_t i = 0; i < this->count; ++i) {
+      if (this->sockets[i]->system_link()) {
+        continue;
+      }
+      const uint64_t handle = this->sockets[i]->native_handle();
+      if (IsSelectable(handle)) {
+        nfds = std::max(nfds, int(handle) + 1);
+      }
+    }
+    return nfds;
+  }
+
+  // False when a handle names no socket, which Winsock fails with
+  // WSAENOTSOCK. The guest count is clamped to the 64 the set holds.
+  bool Load(const x_fd_set* guest_set) {
+    assert_true(guest_set->fd_count <= 64);
+    this->count = std::min(uint32_t(guest_set->fd_count), uint32_t(64));
     for (uint32_t i = 0; i < this->count; ++i) {
       auto socket_handle = static_cast<X_HANDLE>(guest_set->fd_array[i]);
       if (socket_handle == -1) {
@@ -1390,9 +1424,13 @@ struct host_set {
       // Convert from Xenia -> native
       auto socket =
           kernel_state()->object_table()->LookupObject<XSocket>(socket_handle);
-      assert_not_null(socket);
+      if (!socket) {
+        this->count = i;
+        return false;
+      }
       this->sockets[i] = socket;
     }
+    return true;
   }
 
   void Store(x_fd_set* guest_set) {
@@ -1411,9 +1449,8 @@ struct host_set {
       if (this->sockets[i]->system_link()) {
         continue;
       }
-      // Another guest thread can close a socket while select waits.
       const auto handle = this->sockets[i]->native_handle();
-      if (handle != static_cast<uint64_t>(-1)) {
+      if (IsSelectable(handle)) {
         FD_SET(handle, native_set);
         ++stored;
       }
@@ -1460,8 +1497,7 @@ struct host_set {
         ready = SystemLinkReady(*socket);
       } else {
         const auto handle = socket->native_handle();
-        ready =
-            handle != static_cast<uint64_t>(-1) && FD_ISSET(handle, native_set);
+        ready = IsSelectable(handle) && FD_ISSET(handle, native_set);
       }
       if (ready) {
         this->sockets[new_count++] = socket;
@@ -1482,17 +1518,26 @@ int_result_t NetDll_select_entry(dword_t caller, dword_t nfds,
   host_set host_readfds(SelectSet::kRead);
   fd_set native_readfds = {0};
   if (readfds) {
-    host_readfds.Load(readfds);
+    if (!host_readfds.Load(readfds)) {
+      XThread::SetLastError(uint32_t(X_WSAError::X_WSAENOTSOCK));
+      return -1;
+    }
   }
   host_set host_writefds(SelectSet::kWrite);
   fd_set native_writefds = {0};
   if (writefds) {
-    host_writefds.Load(writefds);
+    if (!host_writefds.Load(writefds)) {
+      XThread::SetLastError(uint32_t(X_WSAError::X_WSAENOTSOCK));
+      return -1;
+    }
   }
   host_set host_exceptfds(SelectSet::kExcept);
   fd_set native_exceptfds = {0};
   if (exceptfds) {
-    host_exceptfds.Load(exceptfds);
+    if (!host_exceptfds.Load(exceptfds)) {
+      XThread::SetLastError(uint32_t(X_WSAError::X_WSAENOTSOCK));
+      return -1;
+    }
   }
   uint32_t native_count = 0;
   // A select with nothing ready empties the sets, so this refills them too.
@@ -1512,13 +1557,20 @@ int_result_t NetDll_select_entry(dword_t caller, dword_t nfds,
         reinterpret_cast<int32_t*>(&timeout.tv_usec));
     timeout_in = &timeout;
   }
+#if XE_PLATFORM_WIN32
+  const int native_nfds = int(nfds);
+#else
+  const int native_nfds = std::max(
+      {host_readfds.NativeNfds(), host_writefds.NativeNfds(),
+       host_exceptfds.NativeNfds()});
+#endif
   const bool offload = GuestScheduler::CurrentThreadOffloadsBlockingCalls();
   const bool system_link = host_readfds.HasSystemLink() ||
                            host_writefds.HasSystemLink() ||
                            host_exceptfds.HasSystemLink();
   int ret;
   if (!offload && !system_link) {
-    ret = select(nfds, readfds ? &native_readfds : nullptr,
+    ret = select(native_nfds, readfds ? &native_readfds : nullptr,
                  writefds ? &native_writefds : nullptr,
                  exceptfds ? &native_exceptfds : nullptr, timeout_in);
   } else {
@@ -1538,7 +1590,7 @@ int_result_t NetDll_select_entry(dword_t caller, dword_t nfds,
       // Windows fails a select with no handles at all.
       if (native_count || !system_link) {
         timeval poll_timeout = {0, 0};
-        ret = select(nfds, readfds ? &native_readfds : nullptr,
+        ret = select(native_nfds, readfds ? &native_readfds : nullptr,
                      writefds ? &native_writefds : nullptr,
                      exceptfds ? &native_exceptfds : nullptr, &poll_timeout);
       }
@@ -1558,6 +1610,19 @@ int_result_t NetDll_select_entry(dword_t caller, dword_t nfds,
         xe::threading::Sleep(std::chrono::milliseconds(1));
       }
     }
+  }
+  if (ret == -1) {
+    // The sets are undefined after a failure: none of the sockets is ready.
+#if XE_PLATFORM_WIN32
+    const bool bad_socket = WSAGetLastError() == WSAENOTSOCK;
+#else
+    const bool bad_socket = errno == EBADF;
+#endif
+    XThread::SetLastError(uint32_t(bad_socket ? X_WSAError::X_WSAENOTSOCK
+                                              : X_WSAError::X_WSAEINVAL));
+    host_readfds.count = 0;
+    host_writefds.count = 0;
+    host_exceptfds.count = 0;
   }
   if (readfds) {
     host_readfds.UpdateFrom(&native_readfds);

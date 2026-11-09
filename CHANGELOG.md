@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fixed network select calls on Android, from Xendroid+: a socket closed by another thread or a stale handle no longer crashes the core, and sockets are actually checked (POSIX needs the highest descriptor, which games never pass).
 - With "Dedicated XMA Thread" on, the audio decoder thread only looks at the sound streams the game started instead of all 320 on every pass, from Xendroid+.
 - The log writer thread no longer spins while the log is idle on Android, from Xendroid+ (about 6% of a phone core given back to the game).
 - Fixed a crash or memory corruption when a game thread exits with a timer's callback still queued on it, from Xendroid+.
