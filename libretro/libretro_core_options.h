@@ -1130,8 +1130,6 @@ struct retro_core_option_v2_definition option_defs_us[] = {
         },
         "enabled"
     },
-        "enabled"
-    },
     {
         "xenia_xd_early_submissions",
         "Early GPU Submissions (Restart)",
