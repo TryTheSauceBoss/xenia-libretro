@@ -73,6 +73,15 @@ DEFINE_bool(
     "buffers uploaded they read zeros.",
     "Vulkan");
 
+DEFINE_int32(
+    vulkan_mid_frame_submission_draws, 1300,
+    "If greater than 0, end and submit the current command buffer after this "
+    "many draws instead of only at the end of a command buffer or the swap, "
+    "so the GPU overlaps the frame's rendering with the building of the rest "
+    "of its command stream. Splitting closes the current render pass, so "
+    "values that are too small hurt tiled (mobile) GPUs. 0 turns it off.",
+    "GPU");
+
 DEFINE_bool(
     vulkan_float_constants_full_range, true,
     "Give the descriptors of the float constants the range of all 256 (4 KB) "
@@ -4585,6 +4594,17 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
     }
   }
 
+  // vulkan_mid_frame_submission_draws: submit every this many draws, so the
+  // GPU starts on the frame while the rest of its commands are being built.
+  // The next draw's BeginSubmission opens a new submission in the same frame.
+  ++draws_since_submission_;
+  if (cvars::vulkan_mid_frame_submission_draws > 0 &&
+      draws_since_submission_ >=
+          uint32_t(cvars::vulkan_mid_frame_submission_draws) &&
+      submission_open_ && !scratch_buffer_used_) {
+    EndSubmission(false);
+  }
+
   return true;
 }
 
@@ -5853,6 +5873,7 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
     deferred_setup_command_buffer_.Reset();
     if (shared_memory_) {
       shared_memory_->OnGpuSubmissionOpened();
+      draws_since_submission_ = 0;
     }
 
     // Reset cached state of the command buffer.

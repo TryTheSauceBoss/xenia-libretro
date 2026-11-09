@@ -1063,6 +1063,9 @@ class VulkanCommandProcessor final : public CommandProcessor {
   // completes, while the transient sets themselves live until the frame does.
   std::unordered_map<uint64_t, VkDescriptorSet> texture_set_reuse_;
   uint64_t texture_set_reuse_submission_ = UINT64_MAX;
+  // Draws recorded into the currently open submission, for
+  // vulkan_mid_frame_submission_draws.
+  uint32_t draws_since_submission_ = 0;
   std::vector<uint64_t> texture_set_hash_scratch_;
   // Whether descriptor sets in current_graphics_descriptor_sets_ point to
   // up-to-date data.
