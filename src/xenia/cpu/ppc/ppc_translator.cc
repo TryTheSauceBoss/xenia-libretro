@@ -122,6 +122,24 @@ PPCTranslator::PPCTranslator(PPCFrontend* frontend) : frontend_(frontend) {
     compiler_->AddPass(std::make_unique<passes::ValidationPass>());
   }
 
+  // The memory-counter sibling of the above (from Xendroid+): delay
+  // countdowns whose counter was spilled to a stack slot instead of CTR. On
+  // the same still-valid ControlFlowAnalysisPass edges, and ahead of
+  // MemorySequenceCombinationPass, which fuses the byte swaps it models.
+  compiler_->AddPass(std::make_unique<passes::DelayCountdownCollapsePass>());
+  if (validate) {
+    compiler_->AddPass(std::make_unique<passes::ValidationPass>());
+  }
+
+  // Polls the collapses above cannot touch - indefinite waits on memory
+  // another agent writes (GPU fence and frame waits) - get a short host wait
+  // at each iteration (from Xendroid+). After them, so it only sees loops that
+  // survived, on the same CFG edges.
+  compiler_->AddPass(std::make_unique<passes::MemoryPollParkPass>());
+  if (validate) {
+    compiler_->AddPass(std::make_unique<passes::ValidationPass>());
+  }
+
   if (backend->machine_info()->supports_extended_load_store) {
     // Backend supports the advanced LOAD/STORE instructions.
     // These will save us a lot of HIR opcodes.

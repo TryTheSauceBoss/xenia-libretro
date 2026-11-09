@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- More waiting loops handled, from Xendroid+: delay countdowns that keep their counter in memory instead of the counter register are compiled into one short host wait too, and loops that poll memory for another part of the console (GPU fences, frame waits) pause briefly at each check instead of hammering the CPU.
 - Less CPU burned on waiting, from Xendroid+: the short spin-wait loops nearly every Xbox 360 game uses (a fixed count of "do nothing" steps) are compiled into one short host wait, instead of going through the game's counter register at every step.
 - Less work on the GPU thread, from Xendroid+: when a game writes a texture or loop constant with the value it already has, which most games do every draw, the core no longer rebuilds the texture bindings and constant buffers for it.
 - Faster texture loads, from Xendroid+: textures of 32 bits a texel (and depth) are untiled with whole cache lines per GPU instruction, the same result with less memory traffic (Xendroid+ measured +3.7% fps in Forza Horizon on an Adreno 825).

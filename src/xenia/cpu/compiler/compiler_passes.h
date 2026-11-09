@@ -25,6 +25,8 @@
 #include "xenia/cpu/compiler/passes/register_allocation_pass.h"
 #include "xenia/cpu/compiler/passes/simplification_pass.h"
 #include "xenia/cpu/compiler/passes/spin_loop_backoff_pass.h"
+#include "xenia/cpu/compiler/passes/delay_countdown_collapse_pass.h"
+#include "xenia/cpu/compiler/passes/memory_poll_park_pass.h"
 #include "xenia/cpu/compiler/passes/validation_pass.h"
 #include "xenia/cpu/compiler/passes/value_reduction_pass.h"
 
