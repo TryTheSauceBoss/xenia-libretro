@@ -481,9 +481,12 @@ class DeferredCommandBuffer {
   }
 
   // The extended dynamic state (vulkan_dynamic_pipeline_state) as one
-  // command: cull mode, front face, depth test, depth write, depth compare op,
-  // stencil test and the stencil ops of both faces.
+  // command: primitive topology and restart, cull mode, front face, depth
+  // test, depth write, depth compare op, stencil test and the stencil ops of
+  // both faces.
   struct ExtendedDynamicState {
+    VkPrimitiveTopology primitive_topology;
+    VkBool32 primitive_restart_enable;
     VkCullModeFlags cull_mode;
     VkFrontFace front_face;
     VkBool32 depth_test_enable;

@@ -59,8 +59,9 @@ namespace shaders {
 
 DEFINE_bool(
     vulkan_dynamic_pipeline_state, true,
-    "On Vulkan 1.3 devices, set the cull mode, front face, depth test / write "
-    "/ compare op, stencil test and stencil ops of guest draws as dynamic state "
+    "On Vulkan 1.3 devices, set the primitive topology (within its class) and "
+    "restart, cull mode, front face, depth test / write / compare op, stencil "
+    "test and stencil ops of guest draws as dynamic state "
     "(extended dynamic state) instead of baking them into the pipelines, so "
     "draws that differ only in them share a pipeline - fewer pipelines to "
     "compile and less stutter. Not with the fragment shader interlock render "
@@ -645,6 +646,51 @@ void VulkanPipelineCache::ExtractExtendedDynamicState(
     PipelineDescription& description) {
   DeferredCommandBuffer::ExtendedDynamicState& state =
       current_extended_dynamic_state_;
+  // The topology itself, within its class, and the primitive restart are
+  // dynamic. Without dynamicPrimitiveTopologyUnrestricted the pipeline's own
+  // topology must be of the same class, so the description keeps the class,
+  // as the first topology of it (which EnsurePipelineCreated bakes). Restart
+  // is only enabled for strips and fans, as the description has it.
+  PipelinePrimitiveTopology topology_class_first;
+  switch (description.primitive_topology) {
+    case PipelinePrimitiveTopology::kPointList:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+      topology_class_first = PipelinePrimitiveTopology::kPointList;
+      break;
+    case PipelinePrimitiveTopology::kLineList:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+      topology_class_first = PipelinePrimitiveTopology::kLineList;
+      break;
+    case PipelinePrimitiveTopology::kLineStrip:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+      topology_class_first = PipelinePrimitiveTopology::kLineList;
+      break;
+    case PipelinePrimitiveTopology::kLineListWithAdjacency:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY;
+      topology_class_first = PipelinePrimitiveTopology::kLineList;
+      break;
+    case PipelinePrimitiveTopology::kTriangleList:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+      topology_class_first = PipelinePrimitiveTopology::kTriangleList;
+      break;
+    case PipelinePrimitiveTopology::kTriangleStrip:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+      topology_class_first = PipelinePrimitiveTopology::kTriangleList;
+      break;
+    case PipelinePrimitiveTopology::kTriangleFan:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+      topology_class_first = PipelinePrimitiveTopology::kTriangleList;
+      break;
+    case PipelinePrimitiveTopology::kPatchList:
+    default:
+      state.primitive_topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+      topology_class_first = PipelinePrimitiveTopology::kPatchList;
+      break;
+  }
+  state.primitive_restart_enable =
+      description.primitive_restart ? VK_TRUE : VK_FALSE;
+  description.primitive_topology = topology_class_first;
+  description.primitive_restart = 0;
   // As EnsurePipelineCreated bakes them without vulkan_dynamic_pipeline_state.
   state.cull_mode = VK_CULL_MODE_NONE;
   if (description.cull_front) {
@@ -2351,7 +2397,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
     color_blend_state.pAttachments = color_blend_attachments;
   }
 
-  std::array<VkDynamicState, 14> dynamic_states;
+  std::array<VkDynamicState, 16> dynamic_states;
   VkPipelineDynamicStateCreateInfo dynamic_state;
   dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamic_state.pNext = nullptr;
@@ -2379,6 +2425,10 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
   // vulkan_dynamic_pipeline_state: the fields ExtractExtendedDynamicState
   // takes out of the description - set per draw by the command processor.
   if (extended_dynamic_state_enabled_) {
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE;
     dynamic_states[dynamic_state.dynamicStateCount++] =
         VK_DYNAMIC_STATE_CULL_MODE;
     dynamic_states[dynamic_state.dynamicStateCount++] =

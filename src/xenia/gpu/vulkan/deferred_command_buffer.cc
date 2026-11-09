@@ -443,6 +443,9 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
 
       case Command::kSetExtendedDynamicState: {
         auto& args = *reinterpret_cast<const ExtendedDynamicState*>(stream);
+        dfn.vkCmdSetPrimitiveTopology(command_buffer, args.primitive_topology);
+        dfn.vkCmdSetPrimitiveRestartEnable(command_buffer,
+                                           args.primitive_restart_enable);
         dfn.vkCmdSetCullMode(command_buffer, args.cull_mode);
         dfn.vkCmdSetFrontFace(command_buffer, args.front_face);
         dfn.vkCmdSetDepthTestEnable(command_buffer, args.depth_test_enable);
