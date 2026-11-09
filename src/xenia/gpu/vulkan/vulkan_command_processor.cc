@@ -18,6 +18,7 @@
 #include "xenia/base/logging.h"
 #include "xenia/base/math.h"
 #include "xenia/base/profiling.h"
+#include "xenia/base/xxhash.h"
 #include "xenia/gpu/draw_util.h"
 #include "xenia/gpu/gpu_flags.h"
 #include "xenia/gpu/packet_disassembler.h"
@@ -53,6 +54,14 @@ DEFINE_bool(
     "Write PM4 register ranges with bulk byte-swapped copies and dirty "
     "tracking per range, as the D3D12 backend does, instead of a call per "
     "register. From Xendroid+.",
+    "Vulkan");
+
+DEFINE_bool(
+    vulkan_texture_descriptor_set_reuse, true,
+    "Reuse a texture and sampler descriptor set written earlier in the same "
+    "submission with the same images and samplers, rather than only the one "
+    "the previous draw had: draws often alternate between a few texture "
+    "combinations. Results are identical.",
     "Vulkan");
 
 DEFINE_bool(
@@ -7402,6 +7411,72 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
     }
   }
 
+  // vulkan_texture_descriptor_set_reuse: bind a set already written in this
+  // submission with the same layout, images and samplers instead of writing a
+  // new one.
+  uint64_t texture_set_hash_vertex = 0, texture_set_hash_pixel = 0;
+  const bool texture_set_reuse =
+      cvars::vulkan_texture_descriptor_set_reuse &&
+      (write_vertex_textures || write_pixel_textures);
+  if (texture_set_reuse) {
+    uint64_t submission = GetCurrentSubmission();
+    if (texture_set_reuse_submission_ != submission) {
+      texture_set_reuse_.clear();
+      texture_set_reuse_submission_ = submission;
+    }
+    auto hash_set = [&](VkDescriptorSetLayout layout, size_t texture_offset,
+                        uint32_t texture_count, size_t sampler_offset,
+                        uint32_t sampler_count) -> uint64_t {
+      std::vector<uint64_t>& scratch = texture_set_hash_scratch_;
+      scratch.clear();
+      scratch.push_back(uint64_t(layout));
+      scratch.push_back(texture_count);
+      for (uint32_t i = 0; i < texture_count; ++i) {
+        scratch.push_back(uint64_t(
+            descriptor_write_image_info_[texture_offset + i].imageView));
+      }
+      for (uint32_t i = 0; i < sampler_count; ++i) {
+        scratch.push_back(
+            uint64_t(descriptor_write_image_info_[sampler_offset + i].sampler));
+      }
+      return XXH3_64bits(scratch.data(), scratch.size() * sizeof(uint64_t));
+    };
+    if (write_vertex_textures) {
+      texture_set_hash_vertex = hash_set(
+          current_guest_graphics_pipeline_layout_
+              ->descriptor_set_layout_textures_vertex_ref(),
+          vertex_texture_image_info_offset, texture_count_vertex,
+          vertex_sampler_image_info_offset, sampler_count_vertex);
+      auto it = texture_set_reuse_.find(texture_set_hash_vertex);
+      if (it != texture_set_reuse_.end()) {
+        write_vertex_textures = false;
+        current_graphics_descriptor_sets_
+            [SpirvShaderTranslator::kDescriptorSetTexturesVertex] = it->second;
+        current_graphics_descriptor_set_values_up_to_date_ |=
+            UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesVertex;
+        current_textures_vertex_shader_ = vertex_shader;
+        current_written_samplers_vertex_ = current_samplers_vertex_;
+      }
+    }
+    if (write_pixel_textures) {
+      texture_set_hash_pixel = hash_set(
+          current_guest_graphics_pipeline_layout_
+              ->descriptor_set_layout_textures_pixel_ref(),
+          pixel_texture_image_info_offset, texture_count_pixel,
+          pixel_sampler_image_info_offset, sampler_count_pixel);
+      auto it = texture_set_reuse_.find(texture_set_hash_pixel);
+      if (it != texture_set_reuse_.end()) {
+        write_pixel_textures = false;
+        current_graphics_descriptor_sets_
+            [SpirvShaderTranslator::kDescriptorSetTexturesPixel] = it->second;
+        current_graphics_descriptor_set_values_up_to_date_ |=
+            UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel;
+        current_textures_pixel_shader_ = pixel_shader;
+        current_written_samplers_pixel_ = current_samplers_pixel_;
+      }
+    }
+  }
+
   // Write the new descriptor sets.
 
   // Consecutive bindings updated via a single VkWriteDescriptorSet must have
@@ -7484,6 +7559,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
     // Remember what this set was written for, to reuse it in later draws.
     current_textures_vertex_shader_ = vertex_shader;
     current_written_samplers_vertex_ = current_samplers_vertex_;
+    if (texture_set_reuse) {
+      texture_set_reuse_[texture_set_hash_vertex] = write_textures[0].dstSet;
+    }
   }
   // Pixel shader textures and samplers.
   if (write_pixel_textures) {
@@ -7508,6 +7586,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
     // Remember what this set was written for, to reuse it in later draws.
     current_textures_pixel_shader_ = pixel_shader;
     current_written_samplers_pixel_ = current_samplers_pixel_;
+    if (texture_set_reuse) {
+      texture_set_reuse_[texture_set_hash_pixel] = write_textures[0].dstSet;
+    }
   }
   // Write.
   if (write_descriptor_set_count) {
