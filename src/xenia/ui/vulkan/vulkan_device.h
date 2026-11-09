@@ -193,6 +193,11 @@ class VulkanDevice {
 
     bool dynamicRendering = false;
 
+    // VK_EXT_extended_dynamic_state (#268, promoted to 1.3, where it is
+    // required): set on Vulkan 1.3 devices only.
+
+    bool extendedDynamicState = false;
+
     // VK_EXT_non_seamless_cube_map (#423)
 
     bool nonSeamlessCubeMap = false;
@@ -305,6 +310,9 @@ class VulkanDevice {
 #include "xenia/ui/vulkan/functions/device_1_3_khr_maintenance4.inc"
     // VK_KHR_dynamic_rendering (#55, promoted to 1.3)
 #include "xenia/ui/vulkan/functions/device_1_3_khr_dynamic_rendering.inc"
+    // VK_EXT_extended_dynamic_state (#268, promoted to 1.3). Loaded only on
+    // Vulkan 1.3 devices.
+#include "xenia/ui/vulkan/functions/device_1_3_ext_extended_dynamic_state.inc"
     // VK_EXT_conditional_rendering (#82)
 #include "xenia/ui/vulkan/functions/device_ext_conditional_rendering.inc"
     // VK_EXT_depth_bias_control (#284)

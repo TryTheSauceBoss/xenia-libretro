@@ -3594,6 +3594,8 @@ void VulkanCommandProcessor::BindExternalGraphicsPipeline(
   if (!keep_dynamic_blend_constants) {
     dynamic_blend_constants_update_needed_ = true;
   }
+  // External pipelines take none of it as dynamic state.
+  dynamic_extended_state_update_needed_ = true;
   if (!keep_dynamic_stencil_mask_ref) {
     dynamic_stencil_compare_mask_front_update_needed_ = true;
     dynamic_stencil_compare_mask_back_update_needed_ = true;
@@ -4165,6 +4167,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
                                                current_pipeline);
     current_guest_graphics_pipeline_ = current_pipeline;
     current_external_graphics_pipeline_ = VK_NULL_HANDLE;
+  }
+  // vulkan_dynamic_pipeline_state: every guest pipeline takes it as dynamic
+  // state, so it is set only when it changes.
+  if (pipeline_cache_->extended_dynamic_state_enabled()) {
+    const DeferredCommandBuffer::ExtendedDynamicState& extended_state =
+        pipeline_cache_->current_extended_dynamic_state();
+    if (dynamic_extended_state_update_needed_ ||
+        dynamic_extended_state_ != extended_state) {
+      deferred_command_buffer_.CmdSetExtendedDynamicState(extended_state);
+      dynamic_extended_state_ = extended_state;
+      dynamic_extended_state_update_needed_ = false;
+    }
   }
   auto pipeline_layout = static_cast<const PipelineLayout*>(
       pipeline->pipeline_layout.load(std::memory_order_acquire));
@@ -5958,6 +5972,7 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
     dynamic_stencil_write_mask_back_update_needed_ = true;
     dynamic_stencil_reference_front_update_needed_ = true;
     dynamic_stencil_reference_back_update_needed_ = true;
+    dynamic_extended_state_update_needed_ = true;
     current_render_pass_ = VK_NULL_HANDLE;
     current_framebuffer_ = nullptr;
     in_render_pass_ = false;

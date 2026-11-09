@@ -57,6 +57,16 @@ namespace shaders {
 #include "xenia/gpu/shaders/bytecode/vulkan_spirv/ucode_interpreter_vs.h"
 }  // namespace shaders
 
+DEFINE_bool(
+    vulkan_dynamic_pipeline_state, true,
+    "On Vulkan 1.3 devices, set the cull mode, front face, depth test / write "
+    "/ compare op, stencil test and stencil ops of guest draws as dynamic state "
+    "(extended dynamic state) instead of baking them into the pipelines, so "
+    "draws that differ only in them share a pipeline - fewer pipelines to "
+    "compile and less stutter. Not with the fragment shader interlock render "
+    "target path. From Xendroid+.",
+    "Vulkan");
+
 DEFINE_int32(
     vulkan_pipeline_creation_threads, -1,
     "Number of threads used for graphics pipeline creation. -1 to calculate "
@@ -125,6 +135,14 @@ bool VulkanPipelineCache::Initialize() {
   bool edram_fragment_shader_interlock =
       render_target_cache_.GetPath() ==
       RenderTargetCache::Path::kPixelShaderInterlock;
+
+  extended_dynamic_state_enabled_ =
+      cvars::vulkan_dynamic_pipeline_state &&
+      !edram_fragment_shader_interlock &&
+      vulkan_device->properties().extendedDynamicState;
+  if (extended_dynamic_state_enabled_) {
+    XELOGI("Vulkan: cull, depth and stencil state set as dynamic state");
+  }
 
   if (!guest_shader_cache_.Initialize()) {
     return false;
@@ -623,6 +641,88 @@ VulkanPipelineCache::GetGuestGraphicsPipelineLayout(
       texture_count(vertex_shader), sampler_count(vertex_shader));
 }
 
+void VulkanPipelineCache::ExtractExtendedDynamicState(
+    PipelineDescription& description) {
+  DeferredCommandBuffer::ExtendedDynamicState& state =
+      current_extended_dynamic_state_;
+  // As EnsurePipelineCreated bakes them without vulkan_dynamic_pipeline_state.
+  state.cull_mode = VK_CULL_MODE_NONE;
+  if (description.cull_front) {
+    state.cull_mode |= VK_CULL_MODE_FRONT_BIT;
+  }
+  if (description.cull_back) {
+    state.cull_mode |= VK_CULL_MODE_BACK_BIT;
+  }
+  state.front_face = description.front_face_clockwise
+                         ? VK_FRONT_FACE_CLOCKWISE
+                         : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  const bool depth_test =
+      description.depth_write_enable ||
+      description.depth_compare_op != xenos::CompareFunction::kAlways;
+  state.depth_test_enable = depth_test ? VK_TRUE : VK_FALSE;
+  state.depth_write_enable =
+      (depth_test && description.depth_write_enable) ? VK_TRUE : VK_FALSE;
+  state.depth_compare_op =
+      depth_test ? VkCompareOp(uint32_t(VK_COMPARE_OP_NEVER) +
+                               uint32_t(description.depth_compare_op))
+                 : VK_COMPARE_OP_NEVER;
+  if (description.stencil_test_enable) {
+    state.stencil_test_enable = VK_TRUE;
+    state.stencil_front_fail_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_front_fail_op));
+    state.stencil_front_pass_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_front_pass_op));
+    state.stencil_front_depth_fail_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_front_depth_fail_op));
+    state.stencil_front_compare_op = VkCompareOp(
+        uint32_t(VK_COMPARE_OP_NEVER) +
+        uint32_t(description.stencil_front_compare_op));
+    state.stencil_back_fail_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_back_fail_op));
+    state.stencil_back_pass_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_back_pass_op));
+    state.stencil_back_depth_fail_op = VkStencilOp(
+        uint32_t(VK_STENCIL_OP_KEEP) +
+        uint32_t(description.stencil_back_depth_fail_op));
+    state.stencil_back_compare_op = VkCompareOp(
+        uint32_t(VK_COMPARE_OP_NEVER) +
+        uint32_t(description.stencil_back_compare_op));
+  } else {
+    state.stencil_test_enable = VK_FALSE;
+    state.stencil_front_fail_op = VK_STENCIL_OP_KEEP;
+    state.stencil_front_pass_op = VK_STENCIL_OP_KEEP;
+    state.stencil_front_depth_fail_op = VK_STENCIL_OP_KEEP;
+    state.stencil_front_compare_op = VK_COMPARE_OP_NEVER;
+    state.stencil_back_fail_op = VK_STENCIL_OP_KEEP;
+    state.stencil_back_pass_op = VK_STENCIL_OP_KEEP;
+    state.stencil_back_depth_fail_op = VK_STENCIL_OP_KEEP;
+    state.stencil_back_compare_op = VK_COMPARE_OP_NEVER;
+  }
+  // Left out of the description. Without a guest pixel shader the depth fields
+  // also choose the fragment shader (EnsurePipelineCreated), so they stay.
+  description.cull_front = 0;
+  description.cull_back = 0;
+  description.front_face_clockwise = 0;
+  if (description.pixel_shader_hash) {
+    description.depth_write_enable = 0;
+    description.depth_compare_op = xenos::CompareFunction(0);
+  }
+  description.stencil_test_enable = 0;
+  description.stencil_front_fail_op = xenos::StencilOp(0);
+  description.stencil_front_pass_op = xenos::StencilOp(0);
+  description.stencil_front_depth_fail_op = xenos::StencilOp(0);
+  description.stencil_front_compare_op = xenos::CompareFunction(0);
+  description.stencil_back_fail_op = xenos::StencilOp(0);
+  description.stencil_back_pass_op = xenos::StencilOp(0);
+  description.stencil_back_depth_fail_op = xenos::StencilOp(0);
+  description.stencil_back_compare_op = xenos::CompareFunction(0);
+}
+
 bool VulkanPipelineCache::ConfigurePipeline(
     VulkanShader::VulkanTranslation* vertex_shader,
     VulkanShader::VulkanTranslation* pixel_shader,
@@ -642,6 +742,9 @@ bool VulkanPipelineCache::ConfigurePipeline(
           normalized_depth_control, normalized_color_mask, render_pass_key,
           zpd_total, viz_survey, description)) {
     return false;
+  }
+  if (extended_dynamic_state_enabled_) {
+    ExtractExtendedDynamicState(description);
   }
   if (last_pipeline_ && last_pipeline_->first == description) {
     *pipeline_out = &last_pipeline_->second;
@@ -2248,7 +2351,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
     color_blend_state.pAttachments = color_blend_attachments;
   }
 
-  std::array<VkDynamicState, 7> dynamic_states;
+  std::array<VkDynamicState, 14> dynamic_states;
   VkPipelineDynamicStateCreateInfo dynamic_state;
   dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamic_state.pNext = nullptr;
@@ -2272,6 +2375,24 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
         VK_DYNAMIC_STATE_STENCIL_WRITE_MASK;
     dynamic_states[dynamic_state.dynamicStateCount++] =
         VK_DYNAMIC_STATE_STENCIL_REFERENCE;
+  }
+  // vulkan_dynamic_pipeline_state: the fields ExtractExtendedDynamicState
+  // takes out of the description - set per draw by the command processor.
+  if (extended_dynamic_state_enabled_) {
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_CULL_MODE;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_FRONT_FACE;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_DEPTH_COMPARE_OP;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE;
+    dynamic_states[dynamic_state.dynamicStateCount++] =
+        VK_DYNAMIC_STATE_STENCIL_OP;
   }
 
   // Tessellation state (only used when tessellation is active).

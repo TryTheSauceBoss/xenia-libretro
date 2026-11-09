@@ -441,6 +441,27 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
                 xe::align(sizeof(ArgsVkSetScissor), alignof(VkRect2D))));
       } break;
 
+      case Command::kSetExtendedDynamicState: {
+        auto& args = *reinterpret_cast<const ExtendedDynamicState*>(stream);
+        dfn.vkCmdSetCullMode(command_buffer, args.cull_mode);
+        dfn.vkCmdSetFrontFace(command_buffer, args.front_face);
+        dfn.vkCmdSetDepthTestEnable(command_buffer, args.depth_test_enable);
+        dfn.vkCmdSetDepthWriteEnable(command_buffer, args.depth_write_enable);
+        dfn.vkCmdSetDepthCompareOp(command_buffer, args.depth_compare_op);
+        dfn.vkCmdSetStencilTestEnable(command_buffer,
+                                      args.stencil_test_enable);
+        dfn.vkCmdSetStencilOp(command_buffer, VK_STENCIL_FACE_FRONT_BIT,
+                              args.stencil_front_fail_op,
+                              args.stencil_front_pass_op,
+                              args.stencil_front_depth_fail_op,
+                              args.stencil_front_compare_op);
+        dfn.vkCmdSetStencilOp(command_buffer, VK_STENCIL_FACE_BACK_BIT,
+                              args.stencil_back_fail_op,
+                              args.stencil_back_pass_op,
+                              args.stencil_back_depth_fail_op,
+                              args.stencil_back_compare_op);
+      } break;
+
       case Command::kVkSetStencilCompareMask: {
         auto& args =
             *reinterpret_cast<const ArgsSetStencilMaskReference*>(stream);

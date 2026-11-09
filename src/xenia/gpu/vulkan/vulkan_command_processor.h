@@ -1025,6 +1025,11 @@ class VulkanCommandProcessor final : public CommandProcessor {
   bool dynamic_stencil_write_mask_back_update_needed_;
   bool dynamic_stencil_reference_front_update_needed_;
   bool dynamic_stencil_reference_back_update_needed_;
+  // vulkan_dynamic_pipeline_state: the extended dynamic state set last, and
+  // whether it must be set again (a new command buffer, or a pipeline that
+  // doesn't take it as dynamic state was bound since).
+  DeferredCommandBuffer::ExtendedDynamicState dynamic_extended_state_ = {};
+  bool dynamic_extended_state_update_needed_ = true;
 
   // Currently used samplers.
   std::vector<std::pair<VulkanTextureCache::SamplerParameters, VkSampler>>

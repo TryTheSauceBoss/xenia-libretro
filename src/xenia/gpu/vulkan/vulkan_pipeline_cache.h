@@ -36,6 +36,7 @@
 #include "xenia/gpu/registers.h"
 #include "xenia/gpu/shader_storage.h"
 #include "xenia/gpu/spirv_shader_translator.h"
+#include "xenia/gpu/vulkan/deferred_command_buffer.h"
 #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
 #include "xenia/gpu/vulkan/vulkan_shader.h"
 #include "xenia/gpu/xenos.h"
@@ -179,6 +180,21 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
       reg::RB_DEPTHCONTROL normalized_depth_control,
       uint32_t normalized_color_mask,
       bool apply_polygon_offset_in_shader) const;
+
+  // vulkan_dynamic_pipeline_state: whether guest pipelines take the cull mode,
+  // front face, depth test / write / compare op, stencil test and stencil ops
+  // as dynamic state (Vulkan 1.3, not on the fragment shader interlock path),
+  // with these fields left out of their descriptions so draws differing only
+  // in them share a pipeline.
+  bool extended_dynamic_state_enabled() const {
+    return extended_dynamic_state_enabled_;
+  }
+  // The extended dynamic state of the draw of the last ConfigurePipeline, for
+  // the command processor to set.
+  const DeferredCommandBuffer::ExtendedDynamicState&
+  current_extended_dynamic_state() const {
+    return current_extended_dynamic_state_;
+  }
 
   // The texture sign classes of the pixel shader of the next ConfigurePipeline
   // calls (PipelineDescription::texture_sign_classes).
@@ -362,8 +378,9 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
       }
     };
 
-    // Bumped for texture_sign_classes and texture_exp_adjust_zero.
-    static constexpr uint32_t kVersion = 0x2026110A;
+    // Bumped for texture_sign_classes, texture_exp_adjust_zero and the
+    // fields vulkan_dynamic_pipeline_state leaves out.
+    static constexpr uint32_t kVersion = 0x2026110B;
   });
 
   // Pipeline storage constants.
@@ -500,6 +517,13 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
 
   // SetTextureSignClasses.
   uint32_t texture_sign_classes_ = 0;
+  // vulkan_dynamic_pipeline_state.
+  bool extended_dynamic_state_enabled_ = false;
+  DeferredCommandBuffer::ExtendedDynamicState current_extended_dynamic_state_ =
+      {};
+  // Takes the dynamic state out of the description into
+  // current_extended_dynamic_state_.
+  void ExtractExtendedDynamicState(PipelineDescription& description);
   bool texture_exp_adjust_zero_ = false;
   VkShaderStageFlags guest_shader_vertex_stages_;
   bool zpd_hybrid_supported_;

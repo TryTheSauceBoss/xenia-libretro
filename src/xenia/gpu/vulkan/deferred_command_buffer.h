@@ -480,6 +480,37 @@ class DeferredCommandBuffer {
                 sizeof(VkRect2D) * scissor_count);
   }
 
+  // The extended dynamic state (vulkan_dynamic_pipeline_state) as one
+  // command: cull mode, front face, depth test, depth write, depth compare op,
+  // stencil test and the stencil ops of both faces.
+  struct ExtendedDynamicState {
+    VkCullModeFlags cull_mode;
+    VkFrontFace front_face;
+    VkBool32 depth_test_enable;
+    VkBool32 depth_write_enable;
+    VkCompareOp depth_compare_op;
+    VkBool32 stencil_test_enable;
+    VkStencilOp stencil_front_fail_op;
+    VkStencilOp stencil_front_pass_op;
+    VkStencilOp stencil_front_depth_fail_op;
+    VkCompareOp stencil_front_compare_op;
+    VkStencilOp stencil_back_fail_op;
+    VkStencilOp stencil_back_pass_op;
+    VkStencilOp stencil_back_depth_fail_op;
+    VkCompareOp stencil_back_compare_op;
+    bool operator==(const ExtendedDynamicState& other) const {
+      return std::memcmp(this, &other, sizeof(*this)) == 0;
+    }
+    bool operator!=(const ExtendedDynamicState& other) const {
+      return !(*this == other);
+    }
+  };
+  void CmdSetExtendedDynamicState(const ExtendedDynamicState& state) {
+    *reinterpret_cast<ExtendedDynamicState*>(WriteCommand(
+        Command::kSetExtendedDynamicState, sizeof(ExtendedDynamicState))) =
+        state;
+  }
+
   void CmdVkSetStencilCompareMask(VkStencilFaceFlags face_mask,
                                   uint32_t compare_mask) {
     auto& args = *reinterpret_cast<ArgsSetStencilMaskReference*>(
@@ -582,6 +613,7 @@ class DeferredCommandBuffer {
     kVkSetStencilReference,
     kVkSetStencilWriteMask,
     kVkSetViewport,
+    kSetExtendedDynamicState,
     kVkBeginDebugUtilsLabelEXT,
     kVkEndDebugUtilsLabelEXT,
     kVkInsertDebugUtilsLabelEXT,
