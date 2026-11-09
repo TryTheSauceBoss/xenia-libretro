@@ -220,6 +220,8 @@ class HIRBuilder {
   void MemoryBarrier();
   void LoadBarrier();
   void DelayExecution();
+  // Bounded host-only wait of `units` backoff units; no guest-visible effect.
+  Instr* SpinBackoff(uint32_t units);
   void SetRoundingMode(Value* value);
   Value* Max(Value* value1, Value* value2);
   Value* DenormalQuirk(Value* value1, Value* value2, Value* value3);

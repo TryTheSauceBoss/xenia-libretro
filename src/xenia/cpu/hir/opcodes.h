@@ -314,6 +314,14 @@ enum Opcode {
   OPCODE_PACK_SINGLE,    // stfs: narrow to single bits, keeping a signaling NaN
   OPCODE_SET_NJM,
   OPCODE_DELAY_EXECUTION,  // for db16cyc
+  // Bounded host-side wait, used to collapse proven constant-trip-count guest
+  // spin-backoff loops (mtctr N + priority-hint nop sled + bdnz). src1.offset
+  // holds the number of backoff units (host pipeline stalls) to wait, already
+  // clamped by the emitting pass. It is a real wait, not elision: pure
+  // elision would tighten the caller's outer poll loop and burn more host CPU
+  // via contention. No guest-visible effects whatsoever (no context, memory,
+  // or flag changes). From Xendroid+.
+  OPCODE_SPIN_BACKOFF,
   OPCODE_RESERVED_LOAD,
   OPCODE_RESERVED_STORE,
   OPCODE_LOAD_BARRIER,

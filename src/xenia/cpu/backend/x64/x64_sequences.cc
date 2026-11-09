@@ -3793,6 +3793,28 @@ struct DELAY_EXECUTION
   }
 };
 EMITTER_OPCODE_TABLE(OPCODE_DELAY_EXECUTION, DELAY_EXECUTION);
+
+// ============================================================================
+// OPCODE_SPIN_BACKOFF
+// ============================================================================
+// A collapsed constant-trip-count guest spin-backoff loop
+// (SpinLoopBackoffPass): a bounded host wait with no guest-visible effect.
+struct SPIN_BACKOFF
+    : Sequence<SPIN_BACKOFF, I<OPCODE_SPIN_BACKOFF, VoidOp, OffsetOp>> {
+  static void Emit(X64Emitter& e, const EmitArgType& i) {
+    const uint32_t count = static_cast<uint32_t>(i.src1.value);
+    if (!count) {
+      return;
+    }
+    Xbyak::Label loop;
+    e.mov(e.eax, count);
+    e.L(loop);
+    e.pause();
+    e.dec(e.eax);
+    e.jnz(loop);
+  }
+};
+EMITTER_OPCODE_TABLE(OPCODE_SPIN_BACKOFF, SPIN_BACKOFF);
 // Include anchors to other sequence sources so they get included in the build.
 extern volatile int anchor_control;
 static int anchor_control_dest = anchor_control;

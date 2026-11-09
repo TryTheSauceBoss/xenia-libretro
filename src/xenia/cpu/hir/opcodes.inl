@@ -225,6 +225,11 @@ DEFINE_OPCODE(
 	OPCODE_SIG_X,
 	0)
 DEFINE_OPCODE(
+    OPCODE_SPIN_BACKOFF,
+    "spin_backoff",
+    OPCODE_SIG_X_O,
+    0)
+DEFINE_OPCODE(
     OPCODE_LOAD_MMIO,
     "load_mmio",
     OPCODE_SIG_V_O_O,
