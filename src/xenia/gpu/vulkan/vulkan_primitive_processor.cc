@@ -12,11 +12,20 @@
 #include <cstdint>
 
 #include "xenia/base/assert.h"
+#include "xenia/base/cvar.h"
 #include "xenia/base/logging.h"
 #include "xenia/base/profiling.h"
 #include "xenia/gpu/vulkan/deferred_command_buffer.h"
 #include "xenia/gpu/vulkan/vulkan_command_processor.h"
 #include "xenia/ui/vulkan/vulkan_util.h"
+
+DEFINE_bool(
+    vulkan_avoid_geometry_shaders, true,
+    "Draw point sprites (expanded in the vertex shader) and quad lists "
+    "(expanded on the CPU to triangles) without a geometry shader, which "
+    "serializes the binning pass of tile-based GPUs such as Adreno. Takes "
+    "effect when the GPU is set up. From Xendroid+.",
+    "Vulkan");
 
 namespace xe {
 namespace gpu {
@@ -29,10 +38,21 @@ bool VulkanPrimitiveProcessor::Initialize() {
       command_processor_.GetVulkanDevice();
   const ui::vulkan::VulkanDevice::Properties& device_properties =
       vulkan_device->properties();
+  // With vulkan_avoid_geometry_shaders (from Xendroid+), point sprites are
+  // expanded in the vertex shader as a triangle strip and quad lists on the
+  // CPU into a triangle list instead of in a geometry shader, which on
+  // tile-based GPUs (Adreno) serializes the binning pass. The CPU split is
+  // along q0-q2 and the geometry shader's along q1-q3, the same pixels and
+  // winding for planar convex quads (UI, sprites), different only for
+  // non-planar or concave ones. Rectangle lists stay on the geometry shader.
+  // Read once here.
+  const bool gs_for_points_and_quads =
+      device_properties.geometryShader &&
+      !cvars::vulkan_avoid_geometry_shaders;
   if (!InitializeCommon(
           device_properties.fullDrawIndexUint32, device_properties.triangleFans,
-          false, device_properties.geometryShader,
-          device_properties.geometryShader, device_properties.geometryShader)) {
+          false, gs_for_points_and_quads, gs_for_points_and_quads,
+          device_properties.geometryShader)) {
     Shutdown();
     return false;
   }
