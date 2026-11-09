@@ -30,8 +30,6 @@ DEFINE_bool(
     "Certain titles check if result matches provided lower range.",
     "Memory");
 
-DECLARE_bool(scribble_heap);
-
 namespace xe {
 namespace kernel {
 namespace xboxkrnl {
@@ -200,9 +198,9 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
   uint32_t protect = FromXdkProtectFlags(protect_bits);
   uint32_t address = 0;
   BaseHeap* heap;
-  const bool commit = !!(alloc_type & X_MEM_COMMIT);
-  // Only the pages this call commits are initialized.
-  std::vector<std::pair<uint32_t, uint32_t>> commit_runs;
+  const bool zero = (alloc_type & X_MEM_COMMIT) && !(alloc_type & X_MEM_NOZERO);
+  // Only the pages this call commits are zeroed.
+  std::vector<std::pair<uint32_t, uint32_t>> zero_runs;
 
   if (adjusted_base != 0) {
     heap = kernel_memory()->LookupHeap(adjusted_base);
@@ -210,8 +208,8 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
       // Specified the wrong page size for the wrong heap.
       return X_STATUS_ACCESS_DENIED;
     }
-    if (commit) {
-      commit_runs = UncommittedRuns(heap, adjusted_base, adjusted_size);
+    if (zero) {
+      zero_runs = UncommittedRuns(heap, adjusted_base, adjusted_size);
     }
 
     if (heap->AllocFixed(adjusted_base, adjusted_size, page_size,
@@ -223,8 +221,8 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
     heap = kernel_memory()->LookupHeapByType(false, page_size);
     heap->Alloc(adjusted_size, page_size, allocation_type, protect, top_down,
                 &address);
-    if (commit) {
-      commit_runs.emplace_back(address, adjusted_size);
+    if (zero) {
+      zero_runs.emplace_back(address, adjusted_size);
     }
   }
   if (!address) {
@@ -232,18 +230,11 @@ dword_result_t NtAllocateVirtualMemory_entry(lpdword_t base_addr_ptr,
     return X_STATUS_NO_MEMORY;
   }
 
-  for (const auto& [start, length] : commit_runs) {
+  for (const auto& [start, length] : zero_runs) {
     if (!IsWritableProtect(protect)) {
       heap->Protect(start, length, kMemoryProtectRead | kMemoryProtectWrite);
     }
-    if (!(alloc_type & X_MEM_NOZERO)) {
-      kernel_memory()->Zero(start, length);
-    } else if (!cvars::scribble_heap || !IsWritableProtect(protect)) {
-      // The console leaves stale data in these pages and titles can read it.
-      // scribble_heap has already filled the writable ones.
-      auto fill = kernel_memory()->TranslateVirtualBE<uint16_t>(start);
-      std::fill_n(fill, length / 2, uint16_t(0x7175));
-    }
+    kernel_memory()->Zero(start, length);
     if (!IsWritableProtect(protect)) {
       heap->Protect(start, length, protect);
     }
