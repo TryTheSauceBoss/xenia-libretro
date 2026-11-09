@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- New core option category, Xendroid+ Fixes: each ported fix can be turned off on its own (when the game is started again), to find one that breaks a game.
 - Less CPU time per draw on samplers, from Xendroid+: a draw with the same shader as the previous one reuses its samplers and only works out again the ones whose texture headers the game changed.
 - Less shader compile stutter on Vulkan 1.3 phones, from Xendroid+: the primitive type (list, strip or fan of the same kind), culling, depth, stencil and (where the GPU driver supports it) depth clamp, fill mode and blending settings are set per draw instead of being baked into each pipeline, so draws that differ only in them share one pipeline and far fewer have to be compiled. Pipelines are compiled again on the first run after this update.
 - This is now its own core, "Xenia Edge (Xendroid+)", installed beside the plain Xenia Edge core instead of replacing it: the file is `xenia_edge_xendroid_libretro_android.so` (`xenia_edge_xendroid_libretro` elsewhere), RetroArch keeps its options apart, and everything the core keeps moved to `system/Xenia-Edge-Xendroid/`. Copy `system/Xenia-Edge/content/` there to keep your saves and profiles.

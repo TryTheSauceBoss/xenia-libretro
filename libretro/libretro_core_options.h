@@ -123,6 +123,8 @@ struct retro_core_option_v2_category option_cats_us[] = {
       "Speed, language, country, licenses, patches, log level." },
     { "Compatibility", "Compatibility Settings",
       "Per-game hacks, memory, cache/scratch mounts." },
+    { "xendroid", "Xendroid+ Fixes",
+      "Turn single fixes ported from Xendroid+ off, to find one that breaks a game. Each applies when the game is started again." },
     { "patches", "Patch Manager",
       "The game's patches from Xenia Edge's game-patches, for this version of it. A change applies at the next boot." },
     { NULL, NULL, NULL }
@@ -886,6 +888,263 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { NULL, NULL }
         },
         "0"
+    },
+    /* ================================================================ */
+    /* --- Xendroid+ Fixes ---                                           */
+    /* ================================================================ */
+    {
+        "xenia_xd_dynamic_state",
+        "Dynamic Pipeline State (Restart)",
+        "Dynamic Pipeline State (Restart)",
+        "Topology, culling, depth, stencil, depth clamp, fill mode and blending set per draw instead of baked into each pipeline: fewer pipelines to compile. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_texture_set_reuse",
+        "Texture Set Reuse (Restart)",
+        "Texture Set Reuse (Restart)",
+        "A texture and sampler set written earlier in the frame with the same images is bound again instead of writing a new one. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_sampler_cache",
+        "Sampler Cache (Restart)",
+        "Sampler Cache (Restart)",
+        "A draw with the same shader as the previous one keeps its samplers, working out again only those whose fetch constants changed. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_texture_signs",
+        "Texture Sign Specialization (Restart)",
+        "Texture Sign Specialization (Restart)",
+        "The signs (plain, gamma) and scaling of the first 8 textures a pixel shader reads are baked into its pipeline, so the GPU skips the per-pixel handling. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_gamma_branch",
+        "Gamma Conversion Branch (Restart)",
+        "Gamma Conversion Branch (Restart)",
+        "Texture gamma-to-linear conversion only runs inside a branch for textures that are gamma, instead of being computed and discarded for all. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_no_alpha_shaders",
+        "Shaders Without Alpha Test (Restart)",
+        "Shaders Without Alpha Test (Restart)",
+        "Pixel shaders without the alpha test code for the draws that disable it. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_sampler_filterability",
+        "Fast Sampler Filterability (Restart)",
+        "Fast Sampler Filterability (Restart)",
+        "Whether a texture can be filtered is worked out from its fetch constant instead of its whole texture description. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_full_range_constants",
+        "Full-Range Constant Descriptors (Restart)",
+        "Full-Range Constant Descriptors (Restart)",
+        "The float constant descriptors cover all 256 constants, so switching shaders only changes their offsets. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_pixel_vertex_buffers",
+        "Pixel Shader Vertex Buffers (Restart)",
+        "Pixel Shader Vertex Buffers (Restart)",
+        "The buffers pixel shaders read with vertex fetch are uploaded before the draw (Rise of the Tomb Raider's clothes). From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_no_geometry_shaders",
+        "Avoid Geometry Shaders (Restart)",
+        "Avoid Geometry Shaders (Restart)",
+        "Point sprites and quad lists without a geometry shader. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_texture_memo",
+        "Texture Lookup Memo (Restart)",
+        "Texture Lookup Memo (Restart)",
+        "A small table in front of the texture map lookup. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_bulk_registers",
+        "Bulk Register Writes (Restart)",
+        "Bulk Register Writes (Restart)",
+        "GPU register ranges written in bulk, and unchanged fetch constant writes skipped. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_hoist_uploads",
+        "Hoisted Memory Uploads (Restart)",
+        "Hoisted Memory Uploads (Restart)",
+        "Guest memory uploads moved ahead of the frame's command buffer instead of breaking the render pass. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_coalesced_texture_loads",
+        "Coalesced Texture Loads (Restart)",
+        "Coalesced Texture Loads (Restart)",
+        "32-bit texture loads in a compute shader that reads whole rows at once. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_ownership_memo",
+        "Render Target Ownership Memo (Restart)",
+        "Render Target Ownership Memo (Restart)",
+        "EDRAM ownership claims that repeat the previous one are skipped. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_inline_calls",
+        "Inline Guest Calls (Restart)",
+        "Inline Guest Calls (Restart)",
+        "Small guest functions and the register save/restore helpers are inlined into their callers by the recompiler. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+    {
+        "xenia_xd_performance_hint",
+        "Android Performance Hint (Restart)",
+        "Android Performance Hint (Restart)",
+        "Android 13+: the core reports the game's audio deadline to Android so it keeps the game's CPU threads on fast cores. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
+    },
+        "enabled"
+    },
+    {
+        "xenia_xd_early_submissions",
+        "Early GPU Submissions (Restart)",
+        "Early GPU Submissions (Restart)",
+        "The GPU gets a frame's commands every 1300 draws, and every 100 right after the game made it finish everything, instead of all at once. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "enabled"
     },
     /* ================================================================ */
     /* --- Debug ---                                                     */

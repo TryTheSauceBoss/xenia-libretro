@@ -183,6 +183,28 @@ DEFINE_path(cache_root, "", "Root path for cache files.", "Storage");
 
 DECLARE_bool(mount_scratch);
 DECLARE_bool(mount_cache);
+DECLARE_bool(vulkan_dynamic_pipeline_state);
+DECLARE_bool(vulkan_texture_descriptor_set_reuse);
+DECLARE_bool(vulkan_cache_sampler_parameters);
+DECLARE_bool(spirv_texture_sign_specialization);
+DECLARE_bool(spirv_texture_exp_adjust_specialization);
+DECLARE_bool(spirv_texture_sign_branch);
+DECLARE_bool(spirv_specialize_no_alpha);
+DECLARE_bool(vulkan_fast_sampler_filterability);
+DECLARE_bool(vulkan_float_constants_full_range);
+DECLARE_bool(vulkan_pixel_shader_vertex_buffers);
+DECLARE_bool(vulkan_avoid_geometry_shaders);
+DECLARE_bool(texture_lookup_memo);
+DECLARE_bool(vulkan_fast_register_ranges);
+DECLARE_bool(vulkan_skip_redundant_fetch_constant_writes);
+DECLARE_bool(vulkan_hoist_shmem_uploads);
+DECLARE_bool(vulkan_texture_load_coalesced);
+DECLARE_bool(rt_cache_ownership_claim_memo);
+DECLARE_bool(inline_leaf_calls);
+DECLARE_bool(inline_gprlr_saverest);
+DECLARE_bool(apu_performance_hint);
+DECLARE_int32(vulkan_mid_frame_submission_draws);
+DECLARE_int32(vulkan_drained_submission_draws);
 
 
 DEFINE_transient_bool(portable, false, "Portable mode.", "General");
@@ -802,12 +824,62 @@ static void write_patch_files(void) {
         });
 }
 
+
+// The Xendroid+ Fixes category: one option per fix ported from Xendroid+,
+// each switching the cvars of that fix (all on by default, as in Xendroid+).
+struct XendroidToggle {
+    const char *key;
+    bool *cvars[2];  // The second is null for a fix with one
+};
+static const XendroidToggle *xendroid_toggles(size_t *count) {
+    static const XendroidToggle toggles[] = {
+        {"xenia_xd_dynamic_state", {&cvars::vulkan_dynamic_pipeline_state}},
+        {"xenia_xd_texture_set_reuse", {&cvars::vulkan_texture_descriptor_set_reuse}},
+        {"xenia_xd_sampler_cache", {&cvars::vulkan_cache_sampler_parameters}},
+        {"xenia_xd_texture_signs", {&cvars::spirv_texture_sign_specialization, &cvars::spirv_texture_exp_adjust_specialization}},
+        {"xenia_xd_gamma_branch", {&cvars::spirv_texture_sign_branch}},
+        {"xenia_xd_no_alpha_shaders", {&cvars::spirv_specialize_no_alpha}},
+        {"xenia_xd_sampler_filterability", {&cvars::vulkan_fast_sampler_filterability}},
+        {"xenia_xd_full_range_constants", {&cvars::vulkan_float_constants_full_range}},
+        {"xenia_xd_pixel_vertex_buffers", {&cvars::vulkan_pixel_shader_vertex_buffers}},
+        {"xenia_xd_no_geometry_shaders", {&cvars::vulkan_avoid_geometry_shaders}},
+        {"xenia_xd_texture_memo", {&cvars::texture_lookup_memo}},
+        {"xenia_xd_bulk_registers", {&cvars::vulkan_fast_register_ranges, &cvars::vulkan_skip_redundant_fetch_constant_writes}},
+        {"xenia_xd_hoist_uploads", {&cvars::vulkan_hoist_shmem_uploads}},
+        {"xenia_xd_coalesced_texture_loads", {&cvars::vulkan_texture_load_coalesced}},
+        {"xenia_xd_ownership_memo", {&cvars::rt_cache_ownership_claim_memo}},
+        {"xenia_xd_inline_calls", {&cvars::inline_leaf_calls, &cvars::inline_gprlr_saverest}},
+        {"xenia_xd_performance_hint", {&cvars::apu_performance_hint}},
+    };
+    *count = sizeof(toggles) / sizeof(toggles[0]);
+    return toggles;
+}
+
 static void apply_core_options(void) {
     const char *v;
 
     // =================================================================
     // Graphics
     // =================================================================
+
+    // Xendroid+ Fixes
+    {
+        size_t toggle_count;
+        const XendroidToggle *toggles = xendroid_toggles(&toggle_count);
+        for (size_t i = 0; i < toggle_count; ++i) {
+            if ((v = opt_get(toggles[i].key))) {
+                const bool on = strcmp(v, "disabled") != 0;
+                for (bool *cvar : toggles[i].cvars)
+                    if (cvar)
+                        *cvar = on;
+            }
+        }
+        if ((v = opt_get("xenia_xd_early_submissions"))) {
+            const bool on = strcmp(v, "disabled") != 0;
+            cvars::vulkan_mid_frame_submission_draws = on ? 1300 : 0;
+            cvars::vulkan_drained_submission_draws = on ? 100 : 0;
+        }
+    }
 
     // Render target path
     if ((v = opt_get(XENIA_OPT_RENDER_TARGET_PATH))) {
