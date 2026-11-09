@@ -944,6 +944,24 @@ class RenderTargetCache {
   // since standard containers use dynamic allocation for elements, though
   // changes to this throughout a frame are pretty rare.
   std::map<uint32_t, OwnershipRange> ownership_ranges_;
+
+  // Bumped on every change of ownership_ranges_ (claims, splits, clears).
+  // Lets Update() skip ChangeOwnership walks that would provably change
+  // nothing: once a render target has claimed an extent with an unchanged map
+  // since, claiming it again from the same start the same way is a no-op
+  // (rt_cache_ownership_claim_memo, from Xendroid+).
+  uint64_t ownership_ranges_version_ = 0;
+  // The last claim of each render target slot in Update() (0 is depth, color
+  // from 1), valid while version is ownership_ranges_version_.
+  struct OwnershipClaimMemo {
+    RenderTargetKey dest;
+    uint32_t start_tiles = 0;
+    uint32_t length_tiles = 0;
+    bool keep_depth_bits = false;
+    uint64_t version = ~uint64_t(0);
+  };
+  OwnershipClaimMemo
+      ownership_claim_memos_[1 + xenos::kMaxColorRenderTargets];
   // PA_SC_WINDOW_OFFSET of the last interlock draw with the offset in the
   // EDRAM bases, 0 for one with it in the viewport, UINT32_MAX after a full
   // barrier. Bits 15 and 31 aren't used.
