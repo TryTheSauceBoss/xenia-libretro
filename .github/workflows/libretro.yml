@@ -12,7 +12,7 @@ on:
         type: string
         default: all
   push:
-    branches: [libretro, xendroid-port]
+    branches: [libretro, xendroid-port, test-no-upstream, test-no-nozero]
     paths-ignore:
       - '*.md'
       - 'LICENSE'
@@ -23,7 +23,7 @@ on:
 # on Android phones), which build Android only.
 jobs:
   linux:
-    if: (github.event_name != 'workflow_dispatch' && github.ref_name != 'xendroid-port') || inputs.platforms == 'all' || contains(inputs.platforms, 'linux')
+    if: (github.event_name != 'workflow_dispatch' && github.ref_name == 'libretro') || inputs.platforms == 'all' || contains(inputs.platforms, 'linux')
     name: Linux ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -78,7 +78,7 @@ jobs:
           path: dist/
 
   windows:
-    if: (github.event_name != 'workflow_dispatch' && github.ref_name != 'xendroid-port') || inputs.platforms == 'all' || contains(inputs.platforms, 'windows')
+    if: (github.event_name != 'workflow_dispatch' && github.ref_name == 'libretro') || inputs.platforms == 'all' || contains(inputs.platforms, 'windows')
     name: Windows x86_64
     runs-on: windows-2025
     steps:
@@ -140,7 +140,7 @@ jobs:
   # frames. Apple Silicon only: the x64 backend needs the address space
   # below 4 GB, which a dylib can't free (the __PAGEZERO is RetroArch's)
   macos:
-    if: (github.event_name != 'workflow_dispatch' && github.ref_name != 'xendroid-port') || inputs.platforms == 'all' || contains(inputs.platforms, 'macos')
+    if: (github.event_name != 'workflow_dispatch' && github.ref_name == 'libretro') || inputs.platforms == 'all' || contains(inputs.platforms, 'macos')
     name: macOS ${{ matrix.arch }}
     runs-on: macos-26
     strategy:
