@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Faster GPU register writes, from Xendroid+: the blocks of GPU registers a game writes at once (shader constants, texture settings) are copied in bulk, with the bookkeeping done once per block instead of once per register.
 - Three more from Xendroid+: point sprites and quad lists are drawn without a geometry shader, which slows down the tile-based GPUs of phones; waiting game threads idle the CPU core in low power instead of calling into the system scheduler over and over; and repeated texture lookups are answered from a small memo.
 - Less bookkeeping per draw, from Xendroid+: the GPU thread skips re-walking the EDRAM ownership map when a draw renders to the same targets the same way as before with nothing changed in between, and records GPU commands without clearing memory for each one (about 2% of that thread in Xendroid+'s profiles).
 - Fewer interrupted render passes on phone GPUs, from Xendroid+: game data copied to the GPU that nothing already queued depends on is copied at the start of the GPU's batch of work, instead of breaking off the render pass in progress, which costs a lot on tile-based GPUs like Adreno.

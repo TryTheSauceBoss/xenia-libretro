@@ -327,6 +327,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
   XE_FORCEINLINE
   virtual void WriteRegistersFromMem(uint32_t start_index, uint32_t* base,
                                      uint32_t num_registers) override;
+  void WriteRegisterRangeFromRing(xe::RingBuffer* ring, uint32_t base,
+                                  uint32_t num_registers) override;
 
   void OnGammaRamp256EntryTableValueWritten() override;
   void OnGammaRampPWLValueWritten() override;

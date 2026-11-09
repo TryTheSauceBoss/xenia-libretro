@@ -49,6 +49,13 @@ DEFINE_bool(
     "Vulkan");
 
 DEFINE_bool(
+    vulkan_fast_register_ranges, true,
+    "Write PM4 register ranges with bulk byte-swapped copies and dirty "
+    "tracking per range, as the D3D12 backend does, instead of a call per "
+    "register. From Xendroid+.",
+    "Vulkan");
+
+DEFINE_bool(
     vulkan_skip_redundant_fetch_constant_writes, true,
     "Don't invalidate texture bindings and the fetch and bool/loop constant "
     "buffers when a register write doesn't change the register's value. "
@@ -1733,10 +1740,181 @@ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
 void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index,
                                                    uint32_t* base,
                                                    uint32_t num_registers) {
-  for (uint32_t i = 0; i < num_registers; ++i) {
-    uint32_t data = xe::load_and_swap<uint32_t>(base + i);
-    VulkanCommandProcessor::WriteRegister(start_index + i, data);
+  if (!cvars::vulkan_fast_register_ranges) {
+    for (uint32_t i = 0; i < num_registers; ++i) {
+      uint32_t data = xe::load_and_swap<uint32_t>(base + i);
+      VulkanCommandProcessor::WriteRegister(start_index + i, data);
+    }
+    return;
   }
+  // Ranges written as one byte-swapped copy each, with the side effects of
+  // WriteRegister done per range (from Xendroid+, the D3D12 backend's fast
+  // path): only the registers listed in WriteRegister and
+  // CommandProcessor::WriteRegister have any, and they lie in a few spans.
+  if (start_index >= RegisterFile::kRegisterCount) {
+    XELOGW("WriteRegistersFromMem: register range from {:04X} out of bounds",
+           start_index);
+    return;
+  }
+  if (num_registers > RegisterFile::kRegisterCount - start_index) {
+    XELOGW("WriteRegistersFromMem: register range [{:04X}, {:04X}) clamped",
+           start_index, start_index + num_registers);
+    num_registers = uint32_t(RegisterFile::kRegisterCount) - start_index;
+  }
+  uint32_t index = start_index;
+  const uint32_t end = start_index + num_registers;
+  // Takes the registers up to span_end with the callback, true when done.
+  auto span = [&](uint32_t span_end, auto&& callback) -> bool {
+    if (index < span_end) {
+      uint32_t count = std::min(span_end, end) - index;
+      callback(index, base, count);
+      index += count;
+      base += count;
+    }
+    return index >= end;
+  };
+  auto plain = [this](uint32_t first, uint32_t* src, uint32_t count) {
+    xe::copy_and_swap_32_unaligned(&register_file_->values[first], src, count);
+  };
+  auto one_by_one = [this](uint32_t first, uint32_t* src, uint32_t count) {
+    for (uint32_t i = 0; i < count; ++i) {
+      VulkanCommandProcessor::WriteRegister(first + i,
+                                            xe::load_and_swap<uint32_t>(src + i));
+    }
+  };
+  // Scratch, coherency and gamma ramp registers (0x0578-0x1925), and the
+  // system constant registers (0x2100-0x239F): one by one.
+  if (span(XE_GPU_REG_SCRATCH_REG0, plain) ||
+      span(XE_GPU_REG_DC_LUT_30_COLOR + 1, one_by_one) ||
+      span(XE_GPU_REG_VGT_MAX_VTX_INDX, plain) ||
+      span(XE_GPU_REG_PA_CL_UCP_5_W + 1, one_by_one) ||
+      span(XE_GPU_REG_SHADER_CONSTANT_000_X, plain)) {
+    return;
+  }
+  // Float constants: dirty a constant buffer if the range has a constant its
+  // shaders read, one map scan for the range.
+  if (span(XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0,
+           [this](uint32_t first, uint32_t* src, uint32_t count) {
+             if (frame_open_) {
+               constexpr uint32_t kFloatVertexBit =
+                   UINT32_C(1)
+                   << SpirvShaderTranslator::kConstantBufferFloatVertex;
+               constexpr uint32_t kFloatPixelBit =
+                   UINT32_C(1)
+                   << SpirvShaderTranslator::kConstantBufferFloatPixel;
+               uint32_t constant_first =
+                   (first - XE_GPU_REG_SHADER_CONSTANT_000_X) >> 2;
+               uint32_t constant_end =
+                   ((first + count - 1 - XE_GPU_REG_SHADER_CONSTANT_000_X) >>
+                    2) +
+                   1;
+               if (current_constant_buffers_up_to_date_ & kFloatVertexBit) {
+                 for (uint32_t i = constant_first;
+                      i < std::min(constant_end, UINT32_C(256)); ++i) {
+                   if (current_float_constant_map_vertex_[i >> 6] &
+                       (UINT64_C(1) << (i & 63))) {
+                     current_constant_buffers_up_to_date_ &= ~kFloatVertexBit;
+                     break;
+                   }
+                 }
+               }
+               if (constant_end > 256 &&
+                   (current_constant_buffers_up_to_date_ & kFloatPixelBit)) {
+                 for (uint32_t i = std::max(constant_first, UINT32_C(256));
+                      i < constant_end; ++i) {
+                   uint32_t pixel_index = i - 256;
+                   if (current_float_constant_map_pixel_[pixel_index >> 6] &
+                       (UINT64_C(1) << (pixel_index & 63))) {
+                     current_constant_buffers_up_to_date_ &= ~kFloatPixelBit;
+                     break;
+                   }
+                 }
+               }
+             }
+             xe::copy_and_swap_32_unaligned(&register_file_->values[first], src,
+                                            count);
+           })) {
+    return;
+  }
+  // Fetch constants: dirty per changed fetch slot (as WriteRegister).
+  if (span(XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 + 1,
+           [this](uint32_t first, uint32_t* src, uint32_t count) {
+             const bool skip_same =
+                 cvars::vulkan_skip_redundant_fetch_constant_writes;
+             bool any_changed = false;
+             while (count) {
+               uint32_t slot =
+                   (first - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0) / 6;
+               uint32_t slot_count = std::min(
+                   count,
+                   XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + (slot + 1) * 6 -
+                       first);
+               bool slot_changed = !skip_same;
+               for (uint32_t i = 0; i < slot_count; ++i) {
+                 uint32_t value = xe::load_and_swap<uint32_t>(src + i);
+                 slot_changed |= register_file_->values[first + i] != value;
+                 register_file_->values[first + i] = value;
+               }
+               if (slot_changed) {
+                 any_changed = true;
+                 if (texture_cache_) {
+                   texture_cache_->TextureFetchConstantWritten(slot);
+                 }
+               }
+               first += slot_count;
+               src += slot_count;
+               count -= slot_count;
+             }
+             if (any_changed) {
+               current_constant_buffers_up_to_date_ &= ~(
+                   UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch);
+             }
+           })) {
+    return;
+  }
+  if (span(XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031, plain)) {
+    return;
+  }
+  // Bool and loop constants.
+  if (span(XE_GPU_REG_SHADER_CONSTANT_LOOP_31 + 1,
+           [this](uint32_t first, uint32_t* src, uint32_t count) {
+             bool changed = !cvars::vulkan_skip_redundant_fetch_constant_writes;
+             for (uint32_t i = 0; i < count; ++i) {
+               uint32_t value = xe::load_and_swap<uint32_t>(src + i);
+               changed |= register_file_->values[first + i] != value;
+               register_file_->values[first + i] = value;
+             }
+             if (changed) {
+               current_constant_buffers_up_to_date_ &= ~(
+                   UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop);
+             }
+           })) {
+    return;
+  }
+  span(RegisterFile::kRegisterCount, plain);
+}
+
+void VulkanCommandProcessor::WriteRegisterRangeFromRing(xe::RingBuffer* ring,
+                                                        uint32_t base,
+                                                        uint32_t num_registers) {
+  if (!cvars::vulkan_fast_register_ranges) {
+    CommandProcessor::WriteRegisterRangeFromRing(ring, base, num_registers);
+    return;
+  }
+  // Straight from the ring: one range, or two where it wraps around.
+  RingBuffer::ReadRange range =
+      ring->BeginRead(num_registers * sizeof(uint32_t));
+  uint32_t first_count = uint32_t(range.first_length / sizeof(uint32_t));
+  WriteRegistersFromMem(
+      base, reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(range.first)),
+      first_count);
+  if (range.second && num_registers > first_count) {
+    WriteRegistersFromMem(
+        base + first_count,
+        reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(range.second)),
+        num_registers - first_count);
+  }
+  ring->EndRead(range);
 }
 void VulkanCommandProcessor::SparseBindBuffer(
     VkBuffer buffer, uint32_t bind_count, const VkSparseMemoryBind* binds,
