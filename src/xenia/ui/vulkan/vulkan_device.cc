@@ -1097,6 +1097,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
                              extendedDynamicState3ColorBlendEnable)
       XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3,
                              extendedDynamicState3ColorBlendEquation)
+      XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3,
+                             extendedDynamicState3DepthClampEnable)
+      XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3,
+                             extendedDynamicState3PolygonMode)
     }
   }
 

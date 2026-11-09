@@ -61,9 +61,9 @@ DEFINE_bool(
     vulkan_dynamic_pipeline_state, true,
     "On Vulkan 1.3 devices, set the primitive topology (within its class) and "
     "restart, cull mode, front face, depth test / write / compare op, stencil "
-    "test and stencil ops of guest draws, and their blending where "
-    "VK_EXT_extended_dynamic_state3 allows, as dynamic state "
-    "(extended dynamic state) instead of baking them into the pipelines, so "
+    "test and stencil ops of guest draws, and their depth clamp, polygon mode "
+    "and blending where VK_EXT_extended_dynamic_state3 allows, as dynamic "
+    "state instead of baking them into the pipelines, so "
     "draws that differ only in them share a pipeline - fewer pipelines to "
     "compile and less stutter. Not with the fragment shader interlock render "
     "target path. From Xendroid+.",
@@ -146,10 +146,16 @@ bool VulkanPipelineCache::Initialize() {
       extended_dynamic_state_enabled_ &&
       vulkan_device->properties().extendedDynamicState3ColorBlendEnable &&
       vulkan_device->properties().extendedDynamicState3ColorBlendEquation;
+  extended_dynamic_state_rasterization_ =
+      extended_dynamic_state_enabled_ &&
+      vulkan_device->properties().extendedDynamicState3DepthClampEnable &&
+      vulkan_device->properties().extendedDynamicState3PolygonMode;
   if (extended_dynamic_state_enabled_) {
-    XELOGI("Vulkan: topology, cull, depth and stencil state{} set as dynamic "
-           "state",
-           extended_dynamic_state_blend_ ? " and blending" : "");
+    XELOGI("Vulkan: topology, cull, depth and stencil state{}{} set as "
+           "dynamic state",
+           extended_dynamic_state_rasterization_ ? ", depth clamp, polygon mode"
+                                                 : "",
+           extended_dynamic_state_blend_ ? ", blending" : "");
   }
 
   if (!guest_shader_cache_.Initialize()) {
@@ -801,6 +807,43 @@ void VulkanPipelineCache::ExtractExtendedDynamicState(
   description.stencil_back_pass_op = xenos::StencilOp(0);
   description.stencil_back_depth_fail_op = xenos::StencilOp(0);
   description.stencil_back_compare_op = xenos::CompareFunction(0);
+
+  // Depth clamp and polygon mode (VK_EXT_extended_dynamic_state3). Only values
+  // the device supports leave the description: EnsurePipelineCreated still
+  // refuses the others.
+  state.rasterization_dynamic =
+      extended_dynamic_state_rasterization_ ? VK_TRUE : VK_FALSE;
+  state.depth_clamp_enable = VK_FALSE;
+  state.polygon_mode = VK_POLYGON_MODE_FILL;
+  if (extended_dynamic_state_rasterization_) {
+    const ui::vulkan::VulkanDevice::Properties& device_properties =
+        command_processor_.GetVulkanDevice()->properties();
+    bool polygon_mode_supported;
+    switch (description.polygon_mode) {
+      case PipelinePolygonMode::kLine:
+        state.polygon_mode = VK_POLYGON_MODE_LINE;
+        polygon_mode_supported = device_properties.fillModeNonSolid;
+        break;
+      case PipelinePolygonMode::kPoint:
+        state.polygon_mode = VK_POLYGON_MODE_POINT;
+        polygon_mode_supported = device_properties.fillModeNonSolid &&
+                                 device_properties.pointPolygons;
+        break;
+      default:
+        polygon_mode_supported = true;
+        break;
+    }
+    if (polygon_mode_supported &&
+        (!description.depth_clamp_enable || device_properties.depthClamp)) {
+      state.depth_clamp_enable =
+          description.depth_clamp_enable ? VK_TRUE : VK_FALSE;
+      description.depth_clamp_enable = 0;
+      description.polygon_mode = PipelinePolygonMode::kFill;
+    } else {
+      // The pipeline will not be created; nothing dynamic to set.
+      state.polygon_mode = VK_POLYGON_MODE_FILL;
+    }
+  }
 
   // Blending (VK_EXT_extended_dynamic_state3), as EnsurePipelineCreated sets it
   // up statically. The write masks stay in the description: the placeholder
@@ -2472,7 +2515,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
     color_blend_state.pAttachments = color_blend_attachments;
   }
 
-  std::array<VkDynamicState, 18> dynamic_states;
+  std::array<VkDynamicState, 20> dynamic_states;
   VkPipelineDynamicStateCreateInfo dynamic_state;
   dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamic_state.pNext = nullptr;
@@ -2518,6 +2561,12 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
         VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE;
     dynamic_states[dynamic_state.dynamicStateCount++] =
         VK_DYNAMIC_STATE_STENCIL_OP;
+    if (extended_dynamic_state_rasterization_) {
+      dynamic_states[dynamic_state.dynamicStateCount++] =
+          VK_DYNAMIC_STATE_DEPTH_CLAMP_ENABLE_EXT;
+      dynamic_states[dynamic_state.dynamicStateCount++] =
+          VK_DYNAMIC_STATE_POLYGON_MODE_EXT;
+    }
     if (extended_dynamic_state_blend_) {
       dynamic_states[dynamic_state.dynamicStateCount++] =
           VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT;

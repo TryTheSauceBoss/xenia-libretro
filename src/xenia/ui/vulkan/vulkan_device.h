@@ -240,6 +240,8 @@ class VulkanDevice {
 
     bool extendedDynamicState3ColorBlendEnable = false;
     bool extendedDynamicState3ColorBlendEquation = false;
+    bool extendedDynamicState3DepthClampEnable = false;
+    bool extendedDynamicState3PolygonMode = false;
   };
 
   // Properties of the core API and enabled extensions, and enabled features.

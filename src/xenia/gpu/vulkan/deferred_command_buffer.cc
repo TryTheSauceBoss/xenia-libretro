@@ -463,6 +463,11 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
                               args.stencil_back_pass_op,
                               args.stencil_back_depth_fail_op,
                               args.stencil_back_compare_op);
+        if (args.rasterization_dynamic) {
+          dfn.vkCmdSetDepthClampEnableEXT(command_buffer,
+                                          args.depth_clamp_enable);
+          dfn.vkCmdSetPolygonModeEXT(command_buffer, args.polygon_mode);
+        }
         if (args.blend_dynamic && args.color_attachment_count) {
           dfn.vkCmdSetColorBlendEnableEXT(command_buffer, 0,
                                           args.color_attachment_count,

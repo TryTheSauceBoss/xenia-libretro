@@ -505,6 +505,11 @@ class DeferredCommandBuffer {
     // VK_EXT_extended_dynamic_state3 blending, when blend_dynamic: the
     // enables and equations of the first color_attachment_count attachments
     // (the rest zero, so the whole structure can be compared).
+    // VK_EXT_extended_dynamic_state3 depth clamp and polygon mode, when
+    // rasterization_dynamic.
+    VkBool32 rasterization_dynamic;
+    VkBool32 depth_clamp_enable;
+    VkPolygonMode polygon_mode;
     VkBool32 blend_dynamic;
     uint32_t color_attachment_count;
     VkBool32 blend_enable[4];
