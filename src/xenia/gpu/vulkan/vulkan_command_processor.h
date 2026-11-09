@@ -1036,6 +1036,18 @@ class VulkanCommandProcessor final : public CommandProcessor {
       current_samplers_vertex_;
   std::vector<std::pair<VulkanTextureCache::SamplerParameters, VkSampler>>
       current_samplers_pixel_;
+  // vulkan_cache_sampler_parameters: the shader each stage's samplers above
+  // are for, the fetch constants not written since they were derived, the
+  // submission of their last UseSampler pass, and the texture cache's sampler
+  // destruction generation and the anisotropic_override they were made with.
+  const VulkanShader* current_samplers_shader_vertex_ = nullptr;
+  const VulkanShader* current_samplers_shader_pixel_ = nullptr;
+  uint32_t current_samplers_fetch_up_to_date_vertex_ = 0;
+  uint32_t current_samplers_fetch_up_to_date_pixel_ = 0;
+  uint64_t current_samplers_submission_vertex_ = UINT64_MAX;
+  uint64_t current_samplers_submission_pixel_ = UINT64_MAX;
+  uint64_t current_samplers_destroy_generation_ = UINT64_MAX;
+  int32_t current_samplers_anisotropic_override_ = INT32_MIN;
 
   // Cache render pass currently started in the command buffer with the
   // framebuffer. For dynamic rendering, current_render_pass_ is VK_NULL_HANDLE

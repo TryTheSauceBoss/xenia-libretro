@@ -970,6 +970,7 @@ VkSampler VulkanTextureCache::UseSampler(SamplerParameters parameters,
     }
     auto it_reuse = samplers_.find(sampler_used_first_->first);
     dfn.vkDestroySampler(device, sampler_used_first_->second.sampler, nullptr);
+    ++sampler_destroy_generation_;
     if (sampler_used_first_->second.used_next) {
       sampler_used_first_->second.used_next->second.used_previous =
           sampler_used_first_->second.used_previous;
