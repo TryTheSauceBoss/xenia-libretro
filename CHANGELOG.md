@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Less CPU time lost while the GPU waits for the game, from Xendroid+: the GPU thread polls for new commands 32 times instead of 500 before it sleeps until the game sends some, leaving more of the phone's CPU to the game.
 - Cheaper pixel shaders, from Xendroid+: draws with the alpha test and alpha to coverage turned off get a shader without that code, instead of checking for it on every pixel.
 - Faster GPU register writes, from Xendroid+: the blocks of GPU registers a game writes at once (shader constants, texture settings) are copied in bulk, with the bookkeeping done once per block instead of once per register.
 - Three more from Xendroid+: point sprites and quad lists are drawn without a geometry shader, which slows down the tile-based GPUs of phones; waiting game threads idle the CPU core in low power instead of calling into the system scheduler over and over; and repeated texture lookups are answered from a small memo.
