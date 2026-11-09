@@ -30,6 +30,14 @@ class SharedMemory {
 
   void InvalidateAllPages();
 
+  // Pages invalidated since the GPU submission being recorded opened (from
+  // Xendroid+): an upload of pages that weren't can't be needed by an
+  // already-recorded command, so it may run at the head of the submission
+  // (vulkan_hoist_shmem_uploads). OnGpuSubmissionOpened starts the record.
+  void OnGpuSubmissionOpened();
+  bool AnyPageInvalidatedSinceSubmissionOpen(
+      const std::pair<uint32_t, uint32_t>* page_ranges, uint32_t count) const;
+
   typedef void (*GlobalWatchCallback)(
       const global_unique_lock_type& global_lock, void* context,
       uint32_t address_first, uint32_t address_last, bool invalidated_by_gpu);
@@ -221,6 +229,9 @@ class SharedMemory {
 
   uint64_t* system_page_flags_valid_ = nullptr;
   uint64_t* system_page_flags_valid_and_gpu_written_ = nullptr;
+  // Pages invalidated since the current submission opened, set wherever valid
+  // bits are cleared (see OnGpuSubmissionOpened).
+  uint64_t* system_page_flags_invalidated_in_submission_ = nullptr;
 
   // Set when GPU-written flags change, so an unchanged frame skips the copy.
   bool gpu_written_data_dirty_ = false;

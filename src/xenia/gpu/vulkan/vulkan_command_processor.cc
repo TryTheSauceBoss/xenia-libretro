@@ -111,6 +111,7 @@ VulkanCommandProcessor::VulkanCommandProcessor(
                                ->vulkan_device(),
                            "cp"),
       deferred_command_buffer_(*this),
+      deferred_setup_command_buffer_(*this, 64 * 1024),
       transient_descriptor_allocator_uniform_buffer_(
           static_cast<const ui::vulkan::VulkanProvider*>(
               graphics_system->provider())
@@ -1601,6 +1602,7 @@ void VulkanCommandProcessor::ShutdownContext() {
   sparse_memory_binds_.clear();
 
   deferred_command_buffer_.Reset();
+  deferred_setup_command_buffer_.Reset();
   for (const auto& command_buffer_pair : command_buffers_submitted_) {
     dfn.vkDestroyCommandPool(device, command_buffer_pair.second.pool, nullptr);
   }
@@ -5616,6 +5618,10 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
     // Start a new deferred command buffer - will submit it to the real one in
     // the end of the submission.
     deferred_command_buffer_.Reset();
+    deferred_setup_command_buffer_.Reset();
+    if (shared_memory_) {
+      shared_memory_->OnGpuSubmissionOpened();
+    }
 
     // Reset cached state of the command buffer.
     dynamic_viewport_update_needed_ = true;
@@ -5955,6 +5961,20 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
                               gpu_time_query_pool_, gpu_time_slot * 2);
     }
 
+    if (!deferred_setup_command_buffer_.empty()) {
+      // Hoisted shared memory uploads, made visible to everything after them.
+      deferred_setup_command_buffer_.Execute(command_buffer.buffer);
+      VkMemoryBarrier setup_barrier;
+      setup_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+      setup_barrier.pNext = nullptr;
+      setup_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      setup_barrier.dstAccessMask =
+          VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+      dfn.vkCmdPipelineBarrier(
+          command_buffer.buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &setup_barrier, 0, nullptr,
+          0, nullptr);
+    }
     deferred_command_buffer_.Execute(command_buffer.buffer);
 
     // Record query resolves before submitting.

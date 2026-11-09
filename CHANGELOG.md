@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fewer interrupted render passes on phone GPUs, from Xendroid+: game data copied to the GPU that nothing already queued depends on is copied at the start of the GPU's batch of work, instead of breaking off the render pass in progress, which costs a lot on tile-based GPUs like Adreno.
 - Fewer function calls in compiled game code, from Xendroid+: the XDK's register save/restore helpers that start and end nearly every function are expanded in place, and calls to small straight-line functions (32 instructions at most) are inlined, which saves the whole call and return machinery around a few instructions.
 - More waiting loops handled, from Xendroid+: delay countdowns that keep their counter in memory instead of the counter register are compiled into one short host wait too, and loops that poll memory for another part of the console (GPU fences, frame waits) pause briefly at each check instead of hammering the CPU.
 - Less CPU burned on waiting, from Xendroid+: the short spin-wait loops nearly every Xbox 360 game uses (a fixed count of "do nothing" steps) are compiled into one short host wait, instead of going through the game's counter register at every step.

@@ -181,6 +181,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
     assert_true(submission_open_);
     return deferred_command_buffer_;
   }
+  // Executed at the head of the submission's command buffer, before
+  // deferred_command_buffer(), followed by a full memory barrier: for work
+  // nothing already recorded depends on (shared memory uploads of pages not
+  // invalidated since the submission opened, vulkan_hoist_shmem_uploads), so
+  // it doesn't have to end the current render pass.
+  DeferredCommandBuffer& deferred_setup_command_buffer() {
+    assert_true(submission_open_);
+    return deferred_setup_command_buffer_;
+  }
 
   bool submission_open() const { return submission_open_; }
   uint64_t GetCurrentSubmission() const {
@@ -743,6 +752,7 @@ class VulkanCommandProcessor final : public CommandProcessor {
   std::vector<CommandBuffer> command_buffers_writable_;
   std::deque<std::pair<uint64_t, CommandBuffer>> command_buffers_submitted_;
   DeferredCommandBuffer deferred_command_buffer_;
+  DeferredCommandBuffer deferred_setup_command_buffer_;
 
   std::vector<VkSparseMemoryBind> sparse_memory_binds_;
   std::vector<SparseBufferBind> sparse_buffer_binds_;
