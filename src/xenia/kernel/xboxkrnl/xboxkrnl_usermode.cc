@@ -289,8 +289,7 @@ uint32_t UserModeCodeFault(PPCContext* context, uint32_t address) {
   if (!user_mode || !user_mode->in_user_code || !user_mode->running ||
       xe::threading::Fiber::GetCurrentFiber() !=
           user_mode->running->fiber.get()) {
-    // Outside user code the fault is the kernel's to dispatch.
-    return DispatchCodeFetchFault(context, address);
+    return 0;
   }
   FillAccessViolationRecord(user_mode, address, false, address);
   uint32_t resume_address;

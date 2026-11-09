@@ -82,33 +82,25 @@ inline void XeCryptShaUpdate(XECRYPT_SHA_STATE* state, const uint8_t* input,
   StoreSha(context, *state);
 }
 
-// Pads in place with a 32-bit bit count. The last block it compressed stays in
-// the context buffer, not the message tail. Only shows up when a title
-// finalizes the same context twice and the padding needed a second block, where
-// the tail no longer survives the first call.
-template <uint32_t kBlockSize, typename Context, typename Update>
-inline void PadShaContext(Context& context, uint32_t count, Update update) {
-  constexpr uint32_t kLengthSize = kBlockSize / 8;
-  constexpr uint32_t kLengthStart = kBlockSize - kLengthSize;
-  const uint32_t used = count % kBlockSize;
-  const uint32_t length_offset =
-      (used < kLengthStart ? kLengthStart : kLengthStart + kBlockSize) - used;
-  uint8_t padding[kBlockSize + kLengthSize] = {0x80};
-  const xe::be<uint32_t> bit_count = count << 3;
-  std::memcpy(padding + length_offset + kLengthSize - sizeof(bit_count),
-              &bit_count, sizeof(bit_count));
-
-  update(&context, padding, length_offset);
-  // On its own the length completes the block in the buffer instead of being
-  // compressed straight from the padding.
-  update(&context, padding + length_offset, kLengthSize);
-}
-
+// Pads like the console, in place with a 32-bit bit count and the count kept.
+// The last block it compressed stays in the context buffer, not the message
+// tail. Only shows up when a title finalizes the same context twice and the
+// padding needed a second block, where the tail no longer survives the first
+// call.
 inline void XeCryptShaFinal(XECRYPT_SHA_STATE* state, uint8_t* out,
                             uint32_t out_size) {
   const uint32_t count = state->count;
+  const uint32_t used = count % 64;
+  const uint32_t length_offset = (used < 56 ? 56 : 120) - used;
+  uint8_t padding[72] = {0x80};
+  const xe::be<uint32_t> bit_count = count << 3;
+  std::memcpy(padding + length_offset + 4, &bit_count, sizeof(bit_count));
+
   auto context = LoadSha(*state);
-  PadShaContext<64>(context, count, mbedtls_sha1_update);
+  mbedtls_sha1_update(&context, padding, length_offset);
+  // On its own the length completes the block in the buffer instead of being
+  // compressed straight from the padding.
+  mbedtls_sha1_update(&context, padding + length_offset, 8);
   StoreSha(context, *state);
   state->count = count;
 
@@ -166,18 +158,17 @@ inline void XeCryptSha256Update(XECRYPT_SHA256_STATE* state,
   StoreSha256(context, *state);
 }
 
+// Leaves the count and state words alone and copies the digest into the
+// buffer.
 inline void XeCryptSha256Final(XECRYPT_SHA256_STATE* state, uint8_t* out,
                                uint32_t out_size) {
-  const uint32_t count = state->count;
   auto context = LoadSha256(*state);
-  PadShaContext<64>(context, count, mbedtls_sha256_update);
-  StoreSha256(context, *state);
-  state->count = count;
-
+  uint8_t digest[32];
+  mbedtls_sha256_finish(&context, digest);
   if (out_size) {
-    std::memcpy(out, state->state,
-                std::min<uint32_t>(out_size, sizeof(state->state)));
+    std::memcpy(out, digest, std::min<uint32_t>(out_size, sizeof(digest)));
   }
+  std::memcpy(state->buffer, digest, sizeof(digest));
 }
 
 inline void XeCryptSha256(const uint8_t* input_1, uint32_t input_1_size,
@@ -228,19 +219,17 @@ inline void XeCryptSha512Update(XECRYPT_SHA512_STATE* state,
   StoreSha512(context, *state);
 }
 
+// Leaves the count and state words alone and copies the digest into the
+// buffer.
 inline void XeCryptSha512Final(XECRYPT_SHA512_STATE* state, uint8_t* out,
                                uint32_t out_size) {
-  const uint64_t count = state->count;
   auto context = LoadSha512(*state);
-  PadShaContext<128>(context, static_cast<uint32_t>(count),
-                     mbedtls_sha512_update);
-  StoreSha512(context, *state);
-  state->count = count;
-
+  uint8_t digest[64];
+  mbedtls_sha512_finish(&context, digest);
   if (out_size) {
-    std::memcpy(out, state->state,
-                std::min<uint32_t>(out_size, sizeof(state->state)));
+    std::memcpy(out, digest, std::min<uint32_t>(out_size, sizeof(digest)));
   }
+  std::memcpy(state->buffer, digest, sizeof(digest));
 }
 
 inline void XeCryptHmacShaInit(XECRYPT_HMACSHA_STATE* state, const uint8_t* key,

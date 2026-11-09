@@ -48,8 +48,6 @@ PE_SECTION_FLAGS = {
 }
 PE_SECTION_NAMES = {SECTION_CODE: b'.text', SECTION_DATA: b'.data',
                     SECTION_READONLY: b'.rdata'}
-# The function entries the kernel's RtlLookupFunctionEntry searches.
-PE_EXCEPTION_DIRECTORY = 3
 
 XAM = 'xam.xex'
 XBOXKRNL = 'xboxkrnl.exe'
@@ -136,10 +134,8 @@ class Imports:
         return header, len(records), digest
 
 
-def _pe_header(load_address, entry, page_types, directories):
-    """PE headers for page 0, with one section per run of same-typed pages
-    and the data directories `directories` maps from their index to an
-    (address, size) pair."""
+def _pe_header(load_address, entry, page_types):
+    """PE headers for page 0, with one section per run of same-typed pages."""
     runs = []
     for index, kind in enumerate(page_types, start=1):
         if runs and runs[-1][0] == kind:
@@ -175,9 +171,6 @@ def _pe_header(load_address, entry, page_types, directories):
                      0,
                      0x40000, 0x40000, 0x100000, 0x1000,
                      0, 16)
-    for index, (address, size) in (directories or {}).items():
-        struct.pack_into('<II', page, optional + 0x60 + 8 * index,
-                         address - load_address, size)
     sections = optional + 0xE0
     for i, (kind, first, count) in enumerate(runs):
         struct.pack_into('<8sIIIIIIHHI', page, sections + 40 * i,
@@ -189,11 +182,9 @@ def _pe_header(load_address, entry, page_types, directories):
 
 
 def build(load_address, entry, pages, title_id=0xFFFF7E57, stack_size=0x40000,
-          imports=None, directories=None):
+          imports=None):
     """Returns the XEX2 file for `pages`, a list of (section type, bytes), with
-    the import records of `imports` if given. `directories` maps a PE data
-    directory's index, such as PE_EXCEPTION_DIRECTORY, to the guest address
-    and size of its data."""
+    the import records of `imports` if given."""
     page_types = [kind for kind, _ in pages]
     if imports:
         offset = imports.base - load_address - PAGE_SIZE
@@ -202,7 +193,7 @@ def build(load_address, entry, pages, title_id=0xFFFF7E57, stack_size=0x40000,
         if (kind != SECTION_CODE or
                 data[start:start + len(imports.data())] != imports.data()):
             raise ValueError('import records are not at their base in code')
-    blocks = [_pe_header(load_address, entry, page_types, directories)]
+    blocks = [_pe_header(load_address, entry, page_types)]
     for kind, data in pages:
         if len(data) > PAGE_SIZE:
             raise ValueError('page data larger than a page')
