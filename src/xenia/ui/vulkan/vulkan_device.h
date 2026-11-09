@@ -235,6 +235,11 @@ class VulkanDevice {
     bool depthBiasControl = false;
     bool leastRepresentableValueForceUnormRepresentation = false;
     bool depthBiasExact = false;
+
+    // VK_EXT_extended_dynamic_state3 (#456)
+
+    bool extendedDynamicState3ColorBlendEnable = false;
+    bool extendedDynamicState3ColorBlendEquation = false;
   };
 
   // Properties of the core API and enabled extensions, and enabled features.
@@ -271,6 +276,7 @@ class VulkanDevice {
     bool ext_KHR_fragment_shader_barycentric = false;
     bool ext_EXT_conditional_rendering = false;  // #82
     bool ext_EXT_depth_bias_control = false;     // #284
+    bool ext_EXT_extended_dynamic_state3 = false;  // #456
 #if XE_PLATFORM_WIN32
     // VK_EXT_full_screen_exclusive (#256, Windows only)
     bool ext_EXT_full_screen_exclusive = false;
@@ -317,6 +323,8 @@ class VulkanDevice {
 #include "xenia/ui/vulkan/functions/device_ext_conditional_rendering.inc"
     // VK_EXT_depth_bias_control (#284)
 #include "xenia/ui/vulkan/functions/device_ext_depth_bias_control.inc"
+    // VK_EXT_extended_dynamic_state3 (#456)
+#include "xenia/ui/vulkan/functions/device_ext_extended_dynamic_state3.inc"
 #undef XE_UI_VULKAN_FUNCTION_PROMOTED
 #undef XE_UI_VULKAN_FUNCTION
   };

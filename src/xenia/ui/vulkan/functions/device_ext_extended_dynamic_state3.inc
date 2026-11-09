@@ -1,0 +1,3 @@
+// VK_EXT_extended_dynamic_state3 functions used in Xenia.
+XE_UI_VULKAN_FUNCTION(vkCmdSetColorBlendEnableEXT)
+XE_UI_VULKAN_FUNCTION(vkCmdSetColorBlendEquationEXT)

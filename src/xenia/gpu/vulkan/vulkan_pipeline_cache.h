@@ -183,7 +183,8 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
 
   // vulkan_dynamic_pipeline_state: whether guest pipelines take the primitive
   // topology (within its class) and restart, cull mode, front face, depth
-  // test / write / compare op, stencil test and stencil ops
+  // test / write / compare op, stencil test and stencil ops, and blending
+  // where VK_EXT_extended_dynamic_state3 allows it
   // as dynamic state (Vulkan 1.3, not on the fragment shader interlock path),
   // with these fields left out of their descriptions so draws differing only
   // in them share a pipeline.
@@ -381,7 +382,7 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
 
     // Bumped for texture_sign_classes, texture_exp_adjust_zero and the
     // fields vulkan_dynamic_pipeline_state leaves out.
-    static constexpr uint32_t kVersion = 0x2026110B;
+    static constexpr uint32_t kVersion = 0x2026110C;
   });
 
   // Pipeline storage constants.
@@ -520,6 +521,8 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
   uint32_t texture_sign_classes_ = 0;
   // vulkan_dynamic_pipeline_state.
   bool extended_dynamic_state_enabled_ = false;
+  // Blend enables and equations too (VK_EXT_extended_dynamic_state3).
+  bool extended_dynamic_state_blend_ = false;
   DeferredCommandBuffer::ExtendedDynamicState current_extended_dynamic_state_ =
       {};
   // Takes the dynamic state out of the description into

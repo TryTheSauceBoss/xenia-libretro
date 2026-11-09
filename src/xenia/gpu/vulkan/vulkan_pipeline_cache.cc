@@ -61,7 +61,8 @@ DEFINE_bool(
     vulkan_dynamic_pipeline_state, true,
     "On Vulkan 1.3 devices, set the primitive topology (within its class) and "
     "restart, cull mode, front face, depth test / write / compare op, stencil "
-    "test and stencil ops of guest draws as dynamic state "
+    "test and stencil ops of guest draws, and their blending where "
+    "VK_EXT_extended_dynamic_state3 allows, as dynamic state "
     "(extended dynamic state) instead of baking them into the pipelines, so "
     "draws that differ only in them share a pipeline - fewer pipelines to "
     "compile and less stutter. Not with the fragment shader interlock render "
@@ -141,8 +142,14 @@ bool VulkanPipelineCache::Initialize() {
       cvars::vulkan_dynamic_pipeline_state &&
       !edram_fragment_shader_interlock &&
       vulkan_device->properties().extendedDynamicState;
+  extended_dynamic_state_blend_ =
+      extended_dynamic_state_enabled_ &&
+      vulkan_device->properties().extendedDynamicState3ColorBlendEnable &&
+      vulkan_device->properties().extendedDynamicState3ColorBlendEquation;
   if (extended_dynamic_state_enabled_) {
-    XELOGI("Vulkan: cull, depth and stencil state set as dynamic state");
+    XELOGI("Vulkan: topology, cull, depth and stencil state{} set as dynamic "
+           "state",
+           extended_dynamic_state_blend_ ? " and blending" : "");
   }
 
   if (!guest_shader_cache_.Initialize()) {
@@ -642,6 +649,33 @@ VulkanPipelineCache::GetGuestGraphicsPipelineLayout(
       texture_count(vertex_shader), sampler_count(vertex_shader));
 }
 
+namespace {
+// Xenos blend factors and operations as Vulkan's, for the pipelines and for
+// the dynamic blending of vulkan_dynamic_pipeline_state.
+constexpr VkBlendFactor kVkBlendFactorMap[] = {
+    VK_BLEND_FACTOR_ZERO,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_FACTOR_SRC_COLOR,
+    VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+    VK_BLEND_FACTOR_DST_COLOR,
+    VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR,
+    VK_BLEND_FACTOR_SRC_ALPHA,
+    VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+    VK_BLEND_FACTOR_DST_ALPHA,
+    VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
+    VK_BLEND_FACTOR_CONSTANT_COLOR,
+    VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR,
+    VK_BLEND_FACTOR_CONSTANT_ALPHA,
+    VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA,
+    VK_BLEND_FACTOR_SRC_ALPHA_SATURATE,
+};
+// 8 entries for safety since 3 bits from the guest are passed directly.
+constexpr VkBlendOp kVkBlendOpMap[] = {
+    VK_BLEND_OP_ADD, VK_BLEND_OP_SUBTRACT, VK_BLEND_OP_MIN,
+    VK_BLEND_OP_MAX, VK_BLEND_OP_REVERSE_SUBTRACT, VK_BLEND_OP_ADD,
+    VK_BLEND_OP_ADD, VK_BLEND_OP_ADD};
+}  // namespace
+
 void VulkanPipelineCache::ExtractExtendedDynamicState(
     PipelineDescription& description) {
   DeferredCommandBuffer::ExtendedDynamicState& state =
@@ -767,6 +801,73 @@ void VulkanPipelineCache::ExtractExtendedDynamicState(
   description.stencil_back_pass_op = xenos::StencilOp(0);
   description.stencil_back_depth_fail_op = xenos::StencilOp(0);
   description.stencil_back_compare_op = xenos::CompareFunction(0);
+
+  // Blending (VK_EXT_extended_dynamic_state3), as EnsurePipelineCreated sets it
+  // up statically. The write masks stay in the description: the placeholder
+  // pixel shader's pipelines write none.
+  state.blend_dynamic = extended_dynamic_state_blend_ ? VK_TRUE : VK_FALSE;
+  state.color_attachment_count = 0;
+  std::memset(state.blend_enable, 0, sizeof(state.blend_enable));
+  std::memset(state.blend_equation, 0, sizeof(state.blend_equation));
+  if (extended_dynamic_state_blend_) {
+    const uint32_t color_rts_used =
+        description.render_pass_key.depth_and_color_used >> 1;
+    state.color_attachment_count = 32 - xe::lzcnt(color_rts_used);
+    SpirvShaderTranslator::Modification pixel_shader_modification(
+        description.pixel_shader_modification);
+    const bool rt0_rgb_premult =
+        pixel_shader_modification.pixel.rt0_blend_rgb_factor_for_premult !=
+        xenos::BlendFactor::kOne;
+    const bool rt0_a_premult =
+        pixel_shader_modification.pixel.rt0_blend_a_factor_for_premult !=
+        xenos::BlendFactor::kOne;
+    for (uint32_t i = 0; i < state.color_attachment_count; ++i) {
+      PipelineRenderTarget& color_rt = description.render_targets[i];
+      VkColorBlendEquationEXT& equation = state.blend_equation[i];
+      // Unused attachments within the count: blending off, a valid equation.
+      equation.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      equation.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+      equation.colorBlendOp = VK_BLEND_OP_ADD;
+      equation.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      equation.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+      equation.alphaBlendOp = VK_BLEND_OP_ADD;
+      if ((color_rts_used & (uint32_t(1) << i)) &&
+          (color_rt.src_color_blend_factor != PipelineBlendFactor::kOne ||
+           color_rt.dst_color_blend_factor != PipelineBlendFactor::kZero ||
+           color_rt.color_blend_op != xenos::BlendOp::kAdd ||
+           color_rt.src_alpha_blend_factor != PipelineBlendFactor::kOne ||
+           color_rt.dst_alpha_blend_factor != PipelineBlendFactor::kZero ||
+           color_rt.alpha_blend_op != xenos::BlendOp::kAdd)) {
+        state.blend_enable[i] = VK_TRUE;
+        equation.srcColorBlendFactor =
+            kVkBlendFactorMap[uint32_t(color_rt.src_color_blend_factor)];
+        equation.dstColorBlendFactor =
+            kVkBlendFactorMap[uint32_t(color_rt.dst_color_blend_factor)];
+        equation.colorBlendOp = kVkBlendOpMap[uint32_t(color_rt.color_blend_op)];
+        equation.srcAlphaBlendFactor =
+            kVkBlendFactorMap[uint32_t(color_rt.src_alpha_blend_factor)];
+        equation.dstAlphaBlendFactor =
+            kVkBlendFactorMap[uint32_t(color_rt.dst_alpha_blend_factor)];
+        equation.alphaBlendOp = kVkBlendOpMap[uint32_t(color_rt.alpha_blend_op)];
+        // The shader pre-multiplies by RT0's source factors for MIN/MAX.
+        if (i == 0) {
+          if (rt0_rgb_premult) {
+            equation.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+          }
+          if (rt0_a_premult) {
+            equation.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+          }
+        }
+      }
+      // Left out of the description: blending off there.
+      color_rt.src_color_blend_factor = PipelineBlendFactor::kOne;
+      color_rt.dst_color_blend_factor = PipelineBlendFactor::kZero;
+      color_rt.color_blend_op = xenos::BlendOp::kAdd;
+      color_rt.src_alpha_blend_factor = PipelineBlendFactor::kOne;
+      color_rt.dst_alpha_blend_factor = PipelineBlendFactor::kZero;
+      color_rt.alpha_blend_op = xenos::BlendOp::kAdd;
+    }
+  }
 }
 
 bool VulkanPipelineCache::ConfigurePipeline(
@@ -2309,32 +2410,6 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
     uint32_t color_rts_used =
         description.render_pass_key.depth_and_color_used >> 1;
     {
-      static constexpr VkBlendFactor kBlendFactorMap[] = {
-          VK_BLEND_FACTOR_ZERO,
-          VK_BLEND_FACTOR_ONE,
-          VK_BLEND_FACTOR_SRC_COLOR,
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
-          VK_BLEND_FACTOR_DST_COLOR,
-          VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR,
-          VK_BLEND_FACTOR_SRC_ALPHA,
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-          VK_BLEND_FACTOR_DST_ALPHA,
-          VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
-          VK_BLEND_FACTOR_CONSTANT_COLOR,
-          VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR,
-          VK_BLEND_FACTOR_CONSTANT_ALPHA,
-          VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA,
-          VK_BLEND_FACTOR_SRC_ALPHA_SATURATE,
-      };
-      // 8 entries for safety since 3 bits from the guest are passed directly.
-      static constexpr VkBlendOp kBlendOpMap[] = {VK_BLEND_OP_ADD,
-                                                  VK_BLEND_OP_SUBTRACT,
-                                                  VK_BLEND_OP_MIN,
-                                                  VK_BLEND_OP_MAX,
-                                                  VK_BLEND_OP_REVERSE_SUBTRACT,
-                                                  VK_BLEND_OP_ADD,
-                                                  VK_BLEND_OP_ADD,
-                                                  VK_BLEND_OP_ADD};
       // Check if the shader pre-multiplies by blend factors for MIN/MAX.
       SpirvShaderTranslator::Modification pixel_shader_modification(
           description.pixel_shader_modification);
@@ -2361,17 +2436,17 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
             color_rt.alpha_blend_op != xenos::BlendOp::kAdd) {
           color_blend_attachment.blendEnable = VK_TRUE;
           color_blend_attachment.srcColorBlendFactor =
-              kBlendFactorMap[uint32_t(color_rt.src_color_blend_factor)];
+              kVkBlendFactorMap[uint32_t(color_rt.src_color_blend_factor)];
           color_blend_attachment.dstColorBlendFactor =
-              kBlendFactorMap[uint32_t(color_rt.dst_color_blend_factor)];
+              kVkBlendFactorMap[uint32_t(color_rt.dst_color_blend_factor)];
           color_blend_attachment.colorBlendOp =
-              kBlendOpMap[uint32_t(color_rt.color_blend_op)];
+              kVkBlendOpMap[uint32_t(color_rt.color_blend_op)];
           color_blend_attachment.srcAlphaBlendFactor =
-              kBlendFactorMap[uint32_t(color_rt.src_alpha_blend_factor)];
+              kVkBlendFactorMap[uint32_t(color_rt.src_alpha_blend_factor)];
           color_blend_attachment.dstAlphaBlendFactor =
-              kBlendFactorMap[uint32_t(color_rt.dst_alpha_blend_factor)];
+              kVkBlendFactorMap[uint32_t(color_rt.dst_alpha_blend_factor)];
           color_blend_attachment.alphaBlendOp =
-              kBlendOpMap[uint32_t(color_rt.alpha_blend_op)];
+              kVkBlendOpMap[uint32_t(color_rt.alpha_blend_op)];
 
           // If the shader pre-multiplies by the source blend factor for RT0
           // MIN/MAX, set the pipeline source factor to ONE since it's already
@@ -2397,7 +2472,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
     color_blend_state.pAttachments = color_blend_attachments;
   }
 
-  std::array<VkDynamicState, 16> dynamic_states;
+  std::array<VkDynamicState, 18> dynamic_states;
   VkPipelineDynamicStateCreateInfo dynamic_state;
   dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamic_state.pNext = nullptr;
@@ -2443,6 +2518,12 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
         VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE;
     dynamic_states[dynamic_state.dynamicStateCount++] =
         VK_DYNAMIC_STATE_STENCIL_OP;
+    if (extended_dynamic_state_blend_) {
+      dynamic_states[dynamic_state.dynamicStateCount++] =
+          VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT;
+      dynamic_states[dynamic_state.dynamicStateCount++] =
+          VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT;
+    }
   }
 
   // Tessellation state (only used when tessellation is active).

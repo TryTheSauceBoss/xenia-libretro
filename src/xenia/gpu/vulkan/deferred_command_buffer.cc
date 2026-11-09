@@ -463,6 +463,14 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
                               args.stencil_back_pass_op,
                               args.stencil_back_depth_fail_op,
                               args.stencil_back_compare_op);
+        if (args.blend_dynamic && args.color_attachment_count) {
+          dfn.vkCmdSetColorBlendEnableEXT(command_buffer, 0,
+                                          args.color_attachment_count,
+                                          args.blend_enable);
+          dfn.vkCmdSetColorBlendEquationEXT(command_buffer, 0,
+                                            args.color_attachment_count,
+                                            args.blend_equation);
+        }
       } break;
 
       case Command::kVkSetStencilCompareMask: {

@@ -223,6 +223,8 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
       XE_UI_VULKAN_LOCAL_PROMOTED_EXTENSION(KHR_shader_float16_int8, 1, 2)
       // #284.
       XE_UI_VULKAN_STRUCT_EXTENSION(EXT_depth_bias_control)
+      // #456.
+      XE_UI_VULKAN_STRUCT_EXTENSION(EXT_extended_dynamic_state3)
       // #252.
       XE_UI_VULKAN_LOCAL_EXTENSION(EXT_fragment_shader_interlock)
       // #55.
@@ -443,6 +445,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
       VkPhysicalDeviceDepthBiasControlFeaturesEXT,
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT>
       features_EXT_depth_bias_control;
+  VulkanFeatures<
+      VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT>
+      features_EXT_extended_dynamic_state3;
 
   if (get_physical_device_properties2_supported) {
     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 1, 0)) {
@@ -536,6 +542,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     if (device->extensions_.ext_EXT_depth_bias_control) {
       features_EXT_depth_bias_control.Link(supported_features_2,
                                            device_create_info);
+    }
+    if (device->extensions_.ext_EXT_extended_dynamic_state3) {
+      features_EXT_extended_dynamic_state3.Link(supported_features_2,
+                                                device_create_info);
     }
     ifn.vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
     ifn.vkGetPhysicalDeviceFeatures2(physical_device, &supported_features_2);
@@ -1081,6 +1091,15 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     }
   }
 
+  if (device->extensions_.ext_EXT_extended_dynamic_state3) {
+    if (with_gpu_emulation) {
+      XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3,
+                             extendedDynamicState3ColorBlendEnable)
+      XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3,
+                             extendedDynamicState3ColorBlendEquation)
+    }
+  }
+
 #undef XE_UI_VULKAN_LIMIT
 #undef XE_UI_VULKAN_ENUM_LIMIT
 #undef XE_UI_VULKAN_FEATURE
@@ -1188,6 +1207,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   }
   if (device->extensions_.ext_EXT_depth_bias_control) {
 #include "xenia/ui/vulkan/functions/device_ext_depth_bias_control.inc"
+  }
+  if (device->extensions_.ext_EXT_extended_dynamic_state3) {
+#include "xenia/ui/vulkan/functions/device_ext_extended_dynamic_state3.inc"
   }
 #undef XE_UI_VULKAN_FUNCTION_PROMOTED
 

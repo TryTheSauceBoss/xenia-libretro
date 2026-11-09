@@ -483,7 +483,8 @@ class DeferredCommandBuffer {
   // The extended dynamic state (vulkan_dynamic_pipeline_state) as one
   // command: primitive topology and restart, cull mode, front face, depth
   // test, depth write, depth compare op, stencil test and the stencil ops of
-  // both faces.
+  // both faces, and the blending of the color attachments with
+  // VK_EXT_extended_dynamic_state3.
   struct ExtendedDynamicState {
     VkPrimitiveTopology primitive_topology;
     VkBool32 primitive_restart_enable;
@@ -501,6 +502,13 @@ class DeferredCommandBuffer {
     VkStencilOp stencil_back_pass_op;
     VkStencilOp stencil_back_depth_fail_op;
     VkCompareOp stencil_back_compare_op;
+    // VK_EXT_extended_dynamic_state3 blending, when blend_dynamic: the
+    // enables and equations of the first color_attachment_count attachments
+    // (the rest zero, so the whole structure can be compared).
+    VkBool32 blend_dynamic;
+    uint32_t color_attachment_count;
+    VkBool32 blend_enable[4];
+    VkColorBlendEquationEXT blend_equation[4];
     bool operator==(const ExtendedDynamicState& other) const {
       return std::memcmp(this, &other, sizeof(*this)) == 0;
     }
