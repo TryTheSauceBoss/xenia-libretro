@@ -10,11 +10,18 @@
 #include "xenia/gpu/guest_spirv_shader_cache.h"
 
 #include "xenia/base/assert.h"
+#include "xenia/base/cvar.h"
 #include "xenia/base/logging.h"
 #include "xenia/base/math.h"
 #include "xenia/gpu/register_file.h"
 #include "xenia/gpu/render_target_cache.h"
 #include "xenia/gpu/spirv_shader_translator.h"
+
+DEFINE_bool(spirv_specialize_no_alpha, true,
+            "Translate host render target pixel shaders for draws with the "
+            "alpha test and alpha to coverage disabled without them, rather "
+            "than with them checked at run time. From Xendroid+.",
+            "GPU");
 
 namespace xe {
 namespace gpu {
@@ -152,8 +159,19 @@ uint64_t GuestSpirvShaderCache::GetPixelShaderModification(
             DepthStencilMode::kPolygonOffset;
       } else {
         // kEarlyHint triggers a GPU fault on nvidia (Alan Wake gameplay), so
-        // use the safe alternative.
+        // use the safe alternative. Leaving out the alpha test and alpha to
+        // coverage when the draw disables them is independent of that hint
+        // (from Xendroid+).
         modification.pixel.depth_stencil_mode = DepthStencilMode::kNoModifiers;
+        auto color_control = regs.Get<reg::RB_COLORCONTROL>();
+        if (cvars::spirv_specialize_no_alpha &&
+            shader.writes_color_target(0) &&
+            !color_control.alpha_to_mask_enable &&
+            (!color_control.alpha_test_enable ||
+             color_control.alpha_func == xenos::CompareFunction::kAlways)) {
+          modification.pixel.depth_stencil_mode =
+              DepthStencilMode::kNoAlphaTests;
+        }
       }
     }
 

@@ -3439,7 +3439,7 @@ void SpirvShaderTranslator::StartFragmentShaderBeforeMain() {
       DSV_IsApplyingPolygonOffset() || IsGuestPixelCenterFetchNeeded() ||
       (!edram_fragment_shader_interlock_ && !is_depth_only_fragment_shader_ &&
        current_shader().writes_color_target(0) &&
-       !IsExecutionModeEarlyFragmentTests());
+       !IsAlphaTestAndCoverageDisabled());
   if (need_frag_coord) {
     input_fragment_coordinates_ = builder_->createVariable(
         spv::NoPrecision, spv::StorageClassInput, type_float4_, "gl_FragCoord");

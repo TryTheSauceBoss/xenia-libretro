@@ -66,8 +66,14 @@ class SpirvShaderTranslator : public ShaderTranslator {
       kPolygonOffset,
       kFloat24TruncatingPolygonOffset,
       kFloat24RoundingPolygonOffset,
+      // No alpha test or alpha to coverage in the draw, with the depth and
+      // stencil ordering otherwise kept - unlike kEarlyHint, guest kill, depth
+      // output and memory export keep their meaning (spirv_specialize_no_alpha,
+      // from Xendroid+). The last value the 3-bit field can hold.
+      kNoAlphaTests,
       // TODO(Triang3l): Unorm24 (rounding) output mode.
     };
+    static_assert(uint32_t(DepthStencilMode::kNoAlphaTests) < (1u << 3));
 
     struct {
       // uint32_t 0.
@@ -761,6 +767,15 @@ class SpirvShaderTranslator : public ShaderTranslator {
            GetHostRtShaderModification().pixel.depth_stencil_mode ==
                Modification::DepthStencilMode::kEarlyHint &&
            !IsZpdTotal() && current_shader().implicit_early_z_write_allowed();
+  }
+
+  // Whether the alpha test and alpha to coverage of the host render target
+  // pixel shader can be left out: they are disabled in the draw.
+  bool IsAlphaTestAndCoverageDisabled() const {
+    return IsExecutionModeEarlyFragmentTests() ||
+           (!edram_fragment_shader_interlock_ && is_pixel_shader() &&
+            GetHostRtShaderModification().pixel.depth_stencil_mode ==
+                Modification::DepthStencilMode::kNoAlphaTests);
   }
 
   // Whether the current non-FSI pixel shader should convert the depth to 20e4.
