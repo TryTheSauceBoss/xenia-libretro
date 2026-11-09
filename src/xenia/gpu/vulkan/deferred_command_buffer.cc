@@ -9,6 +9,7 @@
 
 #include "xenia/gpu/vulkan/deferred_command_buffer.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "xenia/base/assert.h"
@@ -28,7 +29,7 @@ DeferredCommandBuffer::DeferredCommandBuffer(
   command_stream_.reserve(initial_size / sizeof(uintmax_t));
 }
 
-void DeferredCommandBuffer::Reset() { command_stream_.clear(); }
+void DeferredCommandBuffer::Reset() { command_stream_size_ = 0; }
 
 void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
 #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -38,7 +39,7 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
   const ui::vulkan::VulkanDevice::Functions& dfn =
       command_processor_.GetVulkanDevice()->functions();
   const uintmax_t* stream = command_stream_.data();
-  size_t stream_remaining = command_stream_.size();
+  size_t stream_remaining = command_stream_size_;
   while (stream_remaining) {
     const CommandHeader& header =
         *reinterpret_cast<const CommandHeader*>(stream);
@@ -670,9 +671,13 @@ void* DeferredCommandBuffer::WriteCommand(Command command,
                                           size_t arguments_size_bytes) {
   size_t arguments_size_elements =
       (arguments_size_bytes + sizeof(uintmax_t) - 1) / sizeof(uintmax_t);
-  size_t offset = command_stream_.size();
-  command_stream_.resize(offset + kCommandHeaderSizeElements +
-                         arguments_size_elements);
+  size_t offset = command_stream_size_;
+  size_t new_size =
+      offset + kCommandHeaderSizeElements + arguments_size_elements;
+  if (new_size > command_stream_.size()) {
+    command_stream_.resize(std::max(new_size, command_stream_.size() * 2));
+  }
+  command_stream_size_ = new_size;
   CommandHeader& header =
       *reinterpret_cast<CommandHeader*>(command_stream_.data() + offset);
   header.command = command;

@@ -32,7 +32,7 @@ class DeferredCommandBuffer {
 
   void Reset();
   void Execute(VkCommandBuffer command_buffer);
-  bool empty() const { return command_stream_.empty(); }
+  bool empty() const { return command_stream_size_ == 0; }
 
   // render_pass_begin->pNext must be null.
   void CmdVkBeginRenderPass(
@@ -849,7 +849,11 @@ class DeferredCommandBuffer {
   const VulkanCommandProcessor& command_processor_;
 
   // uintmax_t to ensure uint64_t and pointer alignment of all structures.
+  // Grown geometrically and never shrunk; command_stream_size_ elements of it
+  // are recorded. Resizing the vector for every command zero-filled it, about
+  // 2% of the GPU command thread (from Xendroid+).
   std::vector<uintmax_t> command_stream_;
+  size_t command_stream_size_ = 0;
   // For rebuilding pNext chains of barriers with sample locations.
   std::vector<VkImageMemoryBarrier> image_barriers_with_sample_locations_;
   std::vector<VkSampleLocationsInfoEXT> barrier_sample_locations_;
