@@ -65,6 +65,15 @@ DEFINE_bool(
     "Vulkan");
 
 DEFINE_bool(
+    vulkan_pixel_shader_vertex_buffers, true,
+    "Upload the buffers pixel shaders read with vertex fetch before the draw, "
+    "like the vertex shader's. The Xenos fetches vertices in either stage: "
+    "Rise of the Tomb Raider's pixel shaders that sum the morph targets of "
+    "Lara's clothes read their deltas so, and with only the vertex shader's "
+    "buffers uploaded they read zeros.",
+    "Vulkan");
+
+DEFINE_bool(
     vulkan_float_constants_full_range, true,
     "Give the descriptors of the float constants the range of all 256 (4 KB) "
     "rather than the range of the constants the shader reads: the descriptor "
@@ -4350,6 +4359,32 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
         vfetch_sizes[vfetch_current_queued++] = vfetch_constant.size;
       }
     }
+    // The pixel shader may fetch vertices too
+    // (vulkan_pixel_shader_vertex_buffers): its own fetch constants follow the
+    // vertex shader's. Draws were never dropped over them, so an invalid one
+    // or a failed request is skipped.
+    const uint32_t vfetch_vertex_queued = vfetch_current_queued;
+    if (pixel_shader && cvars::vulkan_pixel_shader_vertex_buffers) {
+      const Shader::ConstantRegisterMap& constant_map_pixel =
+          pixel_shader->constant_register_map();
+      for (uint32_t i = 0;
+           i < xe::countof(constant_map_pixel.vertex_fetch_bitmap); ++i) {
+        uint32_t vfetch_bits_remaining =
+            constant_map_pixel.vertex_fetch_bitmap[i] &
+            ~constant_map_vertex.vertex_fetch_bitmap[i];
+        uint32_t j;
+        while (xe::bit_scan_forward(vfetch_bits_remaining, &j)) {
+          vfetch_bits_remaining = xe::clear_lowest_bit(vfetch_bits_remaining);
+          xenos::xe_gpu_vertex_fetch_t vfetch_constant =
+              regs.GetVertexFetch(i * 32 + j);
+          if (vfetch_constant.type == xenos::FetchConstantType::kVertex) {
+            vfetch_addresses[vfetch_current_queued] =
+                xenos::CpuToGpu(vfetch_constant.address << 2) >> 2;
+            vfetch_sizes[vfetch_current_queued++] = vfetch_constant.size;
+          }
+        }
+      }
+    }
 
     if (vfetch_current_queued) {
       // Pre-acquire the critical region so we're not repeatedly re-acquiring
@@ -4361,7 +4396,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
 
       for (uint32_t i = 0; i < vfetch_current_queued; ++i) {
         if (!shared_memory_->RequestRange(vfetch_addresses[i] << 2,
-                                          vfetch_sizes[i] << 2)) {
+                                          vfetch_sizes[i] << 2) &&
+            i < vfetch_vertex_queued) {
           XELOGE(
               "Failed to request vertex buffer at 0x{:08X} (size {}) in the "
               "shared memory",
