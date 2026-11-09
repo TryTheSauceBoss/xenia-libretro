@@ -127,6 +127,14 @@ class Processor {
   CodeFaultHook code_fault_hook() const { return code_fault_hook_.load(); }
   void set_code_fault_hook(CodeFaultHook hook) { code_fault_hook_.store(hook); }
 
+  // Runs for a guest load or store at |pc| that faults on |address|, on the
+  // faulting thread with the guest context as it was at the access. Returns
+  // the address a handler continued at, or 0 if none took the fault.
+  using DataFaultHook = uint32_t (*)(ppc::PPCContext* context, uint32_t pc,
+                                     bool is_store, uint32_t address);
+  DataFaultHook data_fault_hook() const { return data_fault_hook_.load(); }
+  void set_data_fault_hook(DataFaultHook hook) { data_fault_hook_.store(hook); }
+
   // Lets guest code run from committed memory that no module claims.
   void EnableDynamicCode();
   bool dynamic_code_enabled() const {
@@ -164,6 +172,10 @@ class Processor {
   Module* LookupModule(uint32_t address);
   Function* LookupFunction(Module* module, uint32_t address);
   Function* ResolveFunction(uint32_t address);
+  // Resolves the function a guest call to *address runs. With no guest code
+  // there the fetch faults and the code fault hook can continue the call
+  // elsewhere, leaving *address where it did. Null if the hook didn't.
+  Function* ResolveCallTarget(ppc::PPCContext* context, uint32_t* address);
   // |expand| appends more addresses to resolve from each resolved function.
   size_t ResolveFunctionsInParallel(
       std::vector<uint32_t> addresses,
@@ -381,6 +393,7 @@ class Processor {
   std::atomic<bool> keep_dynamic_context_stores_{false};
   std::atomic<SyscallHook> syscall_hook_{nullptr};
   std::atomic<CodeFaultHook> code_fault_hook_{nullptr};
+  std::atomic<DataFaultHook> data_fault_hook_{nullptr};
 
   // Code can be written through one address and run through another, so swept
   // ranges are keyed by physical address where there is one. This bit keeps

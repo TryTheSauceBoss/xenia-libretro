@@ -18,6 +18,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -25,8 +26,10 @@
 #include "xenia/base/delegate.h"
 #include "xenia/base/exception_handler.h"
 #include "xenia/kernel/kernel_state.h"
+#include "xenia/kernel/title_id_utils.h"
 #include "xenia/kernel/util/game_info_database.h"
 #include "xenia/kernel/util/xlast.h"
+#include "xenia/kernel/xam/indie_game.h"
 #include "xenia/memory.h"
 #include "xenia/patcher/patcher.h"
 #include "xenia/patcher/plugin_loader.h"
@@ -129,6 +132,16 @@ class Emulator {
   const std::optional<vfs::XbeMetadata>& xbox_game() const {
     return xbox_game_;
   }
+  // The indie game the XNA title launcher runs. Empty when the launcher
+  // started without one it can find.
+  const std::optional<kernel::xam::IndieGame>& indie_game() const {
+    return indie_game_;
+  }
+  // The indie game launched from a package outside the XNA title launcher's
+  // content, which the launcher opens under a game library name.
+  const std::optional<kernel::xam::IndieGame>& indie_package() const {
+    return indie_package_;
+  }
   // The title id and version of the executable XeFu is running. A title
   // update, or a game starting another executable, makes it differ from
   // xbox_game(), which still names the release. Empty until the title starts.
@@ -139,13 +152,17 @@ class Emulator {
   // Whether the original Xbox game stays in the drive for a launch of path, as
   // it does for the XeFu build xbox.xex picks.
   bool KeepsXboxGame(const std::filesystem::path& path) const;
-  // The title the running title's per-game config is kept under: the original
-  // Xbox game while XeFu runs it, none when XeFu runs without one.
+  // The title the running title's per-game config is kept under. XeFu's is the
+  // original Xbox game it runs or none without one. The XNA title launcher's
+  // is the indie game it runs.
   uint32_t game_config_title_id() const {
-    if (title_id() != kXeFuTitleId) {
-      return title_id();
+    if (title_id() == kXeFuTitleId) {
+      return xbox_game_ ? xbox_game_->title_id : 0;
     }
-    return xbox_game_ ? xbox_game_->title_id : 0;
+    if (title_id() == kernel::kXN_2002 && indie_game_) {
+      return indie_game_->title_id;
+    }
+    return title_id();
   }
 
   // Folder guest content is stored in.
@@ -325,6 +342,10 @@ class Emulator {
   // image or an Xbox Original package, with |xbe_name| the game's file in it.
   X_STATUS LaunchXboxOriginal(const std::filesystem::path& path,
                               std::string_view xbe_name);
+
+  // Launches the indie game installed as the package at |path|, a folder or
+  // the package file, through the XNA title launcher.
+  X_STATUS LaunchIndieGame(const std::filesystem::path& path);
 
   // Launches a game from a disc archive file (.zar, etc).
   X_STATUS LaunchDiscArchive(const std::filesystem::path& path);
@@ -543,6 +564,11 @@ class Emulator {
 
   void WaitUntilExit();
 
+  // Reports a crash of the calling guest thread at pc, which fault describes,
+  // and halts it. For a fault the guest's handlers didn't take, outside the
+  // host exception handler.
+  [[noreturn]] void HaltCrashedGuestThread(uint32_t pc, std::string_view fault);
+
  public:
   xe::Delegate<uint32_t, const std::string_view> on_launch;
   // A relaunch's title failed to start.
@@ -607,6 +633,8 @@ class Emulator {
   static void SetPersistentEmulatorFlags(uint64_t new_flags);
   static bool ExceptionCallbackThunk(Exception* ex, void* data);
   bool ExceptionCallback(Exception* ex);
+  // Logs a guest crash dump and tells the user, pausing first with --debug.
+  void ReportGuestCrash(const std::string& crash_msg);
 
   std::string RemountAndResolveLaunchPath(const std::string& launch_path);
   std::string FindLaunchModule();
@@ -645,6 +673,8 @@ class Emulator {
   // shown to XeFu as the disc. Persists across launches from xefu_path.
   std::filesystem::path xbox_disc_path_;
   std::optional<vfs::XbeMetadata> xbox_game_;
+  std::optional<kernel::xam::IndieGame> indie_game_;
+  std::optional<kernel::xam::IndieGame> indie_package_;
   mutable std::mutex inserted_disc_mutex_;
   std::optional<InsertedDisc> inserted_disc_;
   DiscPicker disc_picker_;
