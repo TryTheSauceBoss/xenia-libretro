@@ -9,7 +9,24 @@
 
 #include "xenia/apu/audio_system.h"
 
+#include <chrono>
+
+#include "xenia/base/platform.h"
+
 #include <limits>
+
+#if XE_PLATFORM_ANDROID
+#include <dirent.h>
+#include <dlfcn.h>
+#include <unistd.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <map>
+#include <string>
+#include <vector>
+#endif
 
 #include "xenia/apu/apu_flags.h"
 #include "xenia/apu/audio_driver.h"
@@ -46,8 +63,142 @@ DEFINE_uint32(apu_max_queued_frames, 8,
               "APU");
 UPDATE_from_uint32(apu_max_queued_frames, 2024, 8, 31, 20, 64);
 
+DEFINE_bool(
+    apu_performance_hint, true,
+    "Android: register an ADPF performance hint session over the guest CPU, "
+    "audio and XMA threads, and report each audio pump's work against its "
+    "5.33 ms deadline, so the power HAL holds clocks for the game instead of "
+    "parking cores below what it needs.",
+    "APU");
+
 namespace xe {
 namespace apu {
+
+#if XE_PLATFORM_ANDROID
+namespace {
+// apu_performance_hint, ported from Xendroid+. Reporting pump duration against
+// the block deadline is the unprivileged way to stop a power profile parking
+// cores below what the guest needs. dlsym'd: ADPF is API 33+.
+class AudioPerformanceHint {
+ public:
+  ~AudioPerformanceHint() {
+    // The core can be unloaded and loaded again in one process.
+    if (session_ && close_) {
+      close_(session_);
+    }
+  }
+  void ReportPump(uint64_t actual_us) {
+    if (state_ == State::kDisabled) {
+      return;
+    }
+    if (state_ == State::kUninitialized) {
+      Initialize();
+      if (state_ == State::kDisabled) {
+        return;
+      }
+    }
+    report_(session_, static_cast<int64_t>(actual_us) * 1000);
+  }
+
+ private:
+  enum class State { kUninitialized, kActive, kDisabled };
+
+  void Initialize() {
+    state_ = State::kDisabled;
+    if (!cvars::apu_performance_hint) {
+      return;
+    }
+    void* lib = dlopen("libandroid.so", RTLD_NOW | RTLD_NOLOAD);
+    if (!lib) {
+      return;
+    }
+    auto get_manager = reinterpret_cast<void* (*)()>(
+        dlsym(lib, "APerformanceHint_getManager"));
+    auto create_session =
+        reinterpret_cast<void* (*)(void*, const int32_t*, size_t, int64_t)>(
+            dlsym(lib, "APerformanceHint_createSession"));
+    report_ = reinterpret_cast<int (*)(void*, int64_t)>(
+        dlsym(lib, "APerformanceHint_reportActualWorkDuration"));
+    close_ = reinterpret_cast<void (*)(void*)>(
+        dlsym(lib, "APerformanceHint_closeSession"));
+    if (!get_manager || !create_session || !report_) {
+      return;
+    }
+    void* manager = get_manager();
+    if (!manager) {
+      return;
+    }
+    // One thread per name, the oldest (lowest tid): a short-lived thread can
+    // carry a worker's name, and a session naming a thread that has exited by
+    // the time it is created fails as a whole.
+    std::map<std::string, int32_t> tid_by_name;
+    if (DIR* dir = opendir("/proc/self/task")) {
+      while (dirent* entry = readdir(dir)) {
+        int32_t tid = atoi(entry->d_name);
+        if (tid <= 0) {
+          continue;
+        }
+        char comm_path[64];
+        snprintf(comm_path, sizeof(comm_path), "/proc/self/task/%d/comm", tid);
+        char comm[32] = {0};
+        if (FILE* f = fopen(comm_path, "r")) {
+          if (!fgets(comm, sizeof(comm), f)) {
+            comm[0] = '\0';
+          }
+          fclose(f);
+        }
+        if (!strncmp(comm, "Guest CPU", 9) ||
+            !strncmp(comm, "Audio Worker", 12) ||
+            !strncmp(comm, "XMA Decoder", 11)) {
+          auto it = tid_by_name.emplace(comm, tid).first;
+          it->second = std::min(it->second, tid);
+        }
+      }
+      closedir(dir);
+    }
+    std::vector<int32_t> tids;
+    for (const auto& name_tid : tid_by_name) {
+      tids.push_back(name_tid.second);
+    }
+    if (tids.empty()) {
+      return;
+    }
+    session_ = create_session(manager, tids.data(), tids.size(),
+                              AudioSystem::kAudioPumpInterval * int64_t(1000));
+    if (!session_) {
+      // Once more with the threads still alive.
+      std::vector<int32_t> alive;
+      for (int32_t tid : tids) {
+        char task_path[48];
+        snprintf(task_path, sizeof(task_path), "/proc/self/task/%d", tid);
+        if (access(task_path, F_OK) == 0) {
+          alive.push_back(tid);
+        }
+      }
+      if (!alive.empty() && alive.size() != tids.size()) {
+        tids.swap(alive);
+        session_ =
+            create_session(manager, tids.data(), tids.size(),
+                           AudioSystem::kAudioPumpInterval * int64_t(1000));
+      }
+    }
+    if (!session_) {
+      XELOGW("AudioPerformanceHint: createSession failed ({} threads)",
+             tids.size());
+      return;
+    }
+    XELOGI("AudioPerformanceHint: session over {} threads, target {}us",
+           tids.size(), AudioSystem::kAudioPumpInterval);
+    state_ = State::kActive;
+  }
+
+  State state_ = State::kUninitialized;
+  void* session_ = nullptr;
+  int (*report_)(void*, int64_t) = nullptr;
+  void (*close_)(void*) = nullptr;
+};
+}  // namespace
+#endif  // XE_PLATFORM_ANDROID
 
 AudioSystem::AudioSystem(cpu::Processor* processor)
     : memory_(processor->memory()),
@@ -102,6 +253,9 @@ X_STATUS AudioSystem::Setup(kernel::KernelState* kernel_state) {
 void AudioSystem::WorkerThreadMain() {
   // Initialize driver and ringbuffer.
   Initialize();
+#if XE_PLATFORM_ANDROID
+  AudioPerformanceHint audio_perf_hint;
+#endif
 
   // The host mixer releases a client's semaphore on its own coarse cadence,
   // but Xenos audio subsystem operates at 5.333ms interval (see
@@ -205,8 +359,17 @@ void AudioSystem::WorkerThreadMain() {
     if (client_callback) {
       SCOPE_profile_cpu_i("apu", "xe::apu::AudioSystem->client_callback");
       uint64_t args[] = {client_callback_arg};
+#if XE_PLATFORM_ANDROID
+      const auto callback_start = std::chrono::steady_clock::now();
+#endif
       processor_->Execute(worker_thread_->thread_state(), client_callback, args,
                           xe::countof(args));
+#if XE_PLATFORM_ANDROID
+      audio_perf_hint.ReportPump(uint64_t(
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now() - callback_start)
+              .count()));
+#endif
     }
   }
   worker_running_ = false;
