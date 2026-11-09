@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Less CPU time per draw on sampler setup, from Xendroid+: whether a texture can be filtered is worked out straight from its header instead of building its whole texture description for every sampler.
 - The GPU starts on long frames sooner, from Xendroid+: frames with very many draws are sent to the GPU every 1300 draws instead of all at once.
 - Fixed geometry in games whose pixel shaders read vertex data (such as Lara's clothes stretching in Rise of the Tomb Raider), from Xendroid+: those buffers are now uploaded before the draw too.
 - Fewer texture descriptor writes, from Xendroid+: when draws switch back and forth between a few sets of textures, the set written earlier is bound again instead of writing a new one.

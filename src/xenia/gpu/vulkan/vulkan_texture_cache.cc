@@ -40,6 +40,14 @@ DEFINE_bool(
     "-42%, +3.7% fps.",
     "Vulkan");
 
+DEFINE_bool(
+    vulkan_fast_sampler_filterability, true,
+    "Derive host linear-filterability for samplers directly from the fetch "
+    "constant instead of building the full texture binding info per sampler "
+    "per draw. Results are identical; disable for comparison when debugging "
+    "texture filtering.",
+    "Vulkan");
+
 namespace xe {
 namespace gpu {
 namespace vulkan {
@@ -816,10 +824,12 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
           : binding.aniso_filter;
   parameters.mip_base_map = mip_filter == xenos::TextureFilter::kBaseMap;
 
-  uint32_t base_page, mip_min_level, mip_max_level;
+  // One subresource derivation for both the mip range and the
+  // filterability check below.
+  uint32_t width_minus_1, base_page, mip_page, mip_min_level, mip_max_level;
   texture_util::GetSubresourcesFromFetchConstant(
-      fetch, nullptr, nullptr, nullptr, &base_page, nullptr, &mip_min_level,
-      &mip_max_level);
+      fetch, &width_minus_1, nullptr, nullptr, &base_page, &mip_page,
+      &mip_min_level, &mip_max_level);
   if (parameters.mip_base_map && base_page != 0) {
     mip_min_level = 0;
   }
@@ -841,19 +851,58 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
   if (parameters.mag_linear || parameters.min_linear || parameters.mip_linear ||
       parameters.aniso_filter != xenos::AnisoFilter::kDisabled) {
     bool linear_filterable = true;
-    TextureKey texture_key;
-    uint8_t texture_swizzled_signs;
-    BindingInfoFromFetchConstant(fetch, texture_key, &texture_swizzled_signs);
-    if (texture_key.is_valid) {
-      const HostFormatPair& host_format_pair = GetHostFormatPair(texture_key);
-      if ((texture_util::IsAnySignNotSigned(texture_swizzled_signs) &&
-           !host_format_pair.format_unsigned.linear_filterable) ||
-          (texture_util::IsAnySignSigned(texture_swizzled_signs) &&
-           !host_format_pair.format_signed.linear_filterable)) {
-        linear_filterable = false;
+    if (cvars::vulkan_fast_sampler_filterability) {
+      // Mirrors the validation in TextureCache::BindingInfoFromFetchConstant
+      // and the host format selection in GetHostFormatPair without building
+      // the whole texture key: filterability depends only on the fetch
+      // constant's validity, the base format, the width parity (for the packed
+      // 4:2:2 formats) and the swizzled signs.
+      linear_filterable = false;
+      bool fetch_type_valid =
+          fetch.type == xenos::FetchConstantType::kTexture ||
+          (fetch.type == xenos::FetchConstantType::kInvalidTexture &&
+           cvars::gpu_allow_invalid_fetch_constants);
+      // A 1D texture wider than 8192 is laid out in rows of 8192, so its
+      // host width is even.
+      const bool wide_1d =
+          fetch.dimension == xenos::DataDimension::k1D &&
+          width_minus_1 >= xenos::kTexture2DCubeMaxWidthHeight;
+      if (fetch_type_valid && (base_page != 0 || mip_page != 0) &&
+          !(fetch.dimension == xenos::DataDimension::k1D &&
+            (fetch.tiled || fetch.packed_mips))) {
+        xenos::TextureFormat format = GetBaseFormat(fetch.format);
+        bool width_odd = !wide_1d && ((width_minus_1 + 1) & 1) != 0;
+        const HostFormatPair& host_format_pair =
+            (format == xenos::TextureFormat::k_Cr_Y1_Cb_Y0_REP && width_odd)
+                ? kHostFormatGBGRUnaligned
+                : ((format == xenos::TextureFormat::k_Y1_Cr_Y0_Cb_REP &&
+                    width_odd)
+                       ? kHostFormatBGRGUnaligned
+                       : host_formats_[uint32_t(format)]);
+        uint8_t texture_swizzled_signs = texture_util::SwizzleSigns(fetch);
+        linear_filterable =
+            !((texture_util::IsAnySignNotSigned(texture_swizzled_signs) &&
+               !host_format_pair.format_unsigned.linear_filterable) ||
+              (texture_util::IsAnySignSigned(texture_swizzled_signs) &&
+               !host_format_pair.format_signed.linear_filterable));
       }
     } else {
-      linear_filterable = false;
+      TextureKey texture_key;
+      uint8_t texture_swizzled_signs;
+      BindingInfoFromFetchConstant(fetch, texture_key,
+                                   &texture_swizzled_signs);
+      if (texture_key.is_valid) {
+        const HostFormatPair& host_format_pair =
+            GetHostFormatPair(texture_key);
+        if ((texture_util::IsAnySignNotSigned(texture_swizzled_signs) &&
+             !host_format_pair.format_unsigned.linear_filterable) ||
+            (texture_util::IsAnySignSigned(texture_swizzled_signs) &&
+             !host_format_pair.format_signed.linear_filterable)) {
+          linear_filterable = false;
+        }
+      } else {
+        linear_filterable = false;
+      }
     }
     if (!linear_filterable) {
       parameters.mag_linear = 0;
