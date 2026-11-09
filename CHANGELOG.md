@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fixed a crash or memory corruption when a game thread exits with a timer's callback still queued on it, from Xendroid+.
 - Code a game writes at run time (in user mode) no longer has its memory accesses folded as if they were kernel addresses, from Xendroid+, which could read the wrong memory.
 - The ARM64 5.1-to-stereo audio downmix no longer reads past its buffer for a sample count that is not a multiple of four, from Xendroid+ (the core always passes 256, so nothing audible changes).
 - Fixed an out-of-bounds write when a game asks for an oversized RSA key, from Xendroid+.
