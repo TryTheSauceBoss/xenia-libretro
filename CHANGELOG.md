@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fixed an out-of-bounds write when a game asks for an oversized RSA key, from Xendroid+.
 - Fixed every DLC open leaving a file handle behind, from Xendroid+.
 - Fixed a profile file staying open after a failed read, which kept the game from saving that profile data again, from Xendroid+.
 - Fixed a crash when a game creates a folder under something that is a file, from Xendroid+.
