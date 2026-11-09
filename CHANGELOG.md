@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fixed a profile file staying open after a failed read, which kept the game from saving that profile data again, from Xendroid+.
 - Fixed a crash when a game creates a folder under something that is a file, from Xendroid+.
 - Fixed a crash when a game opens a file relative to a closed or wrong handle, from Xendroid+.
 - Fixed a race on ARM64 that could let two game threads own the same lock at once (a mutant released twice), from Xendroid+.
