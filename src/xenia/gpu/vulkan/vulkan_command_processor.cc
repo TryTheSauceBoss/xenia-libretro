@@ -26,6 +26,7 @@
 #include "xenia/gpu/shader.h"
 #include "xenia/gpu/spirv_fsi_system_constants.h"
 #include "xenia/gpu/spirv_shader_translator.h"
+#include "xenia/gpu/texture_util.h"
 #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
 #include "xenia/gpu/vulkan/vulkan_query_pool.h"
 #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
@@ -38,6 +39,7 @@
 #include "xenia/ui/vulkan/vulkan_util.h"
 
 DECLARE_bool(clear_memory_page_state);
+DECLARE_bool(spirv_texture_sign_specialization);
 DECLARE_bool(gpu_debug_markers);
 DECLARE_bool(memexport_enable);
 DECLARE_bool(submit_on_primary_buffer_end);
@@ -4000,6 +4002,29 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
       render_target_cache_->GetPipelineStandInWaitReason(
           frame_current_, *vertex_shader, pixel_shader, memexport_used_vertex,
           memexport_used_pixel, pipeline_cache_->IsStorageWarmUpRunning());
+
+  // The signs of the textures of the first fetch constants the pixel shader
+  // fetches, for the specialization constants of its pipeline
+  // (spirv_texture_sign_specialization) - from the fetch constants, like the
+  // swizzled signs the texture cache gives the shaders. Where it binds no
+  // texture (taking the signs as unsigned), the classes made known (unsigned
+  // or gamma) give the same zeros.
+  uint32_t texture_sign_classes = 0;
+  if (pixel_shader && cvars::spirv_texture_sign_specialization) {
+    for (const Shader::TextureBinding& texture_binding :
+         pixel_shader->texture_bindings()) {
+      const uint32_t fetch_constant = texture_binding.fetch_constant;
+      if (fetch_constant >=
+          SpirvShaderTranslator::kTextureSignClassFetchConstantCount) {
+        continue;
+      }
+      texture_sign_classes |=
+          SpirvShaderTranslator::GetTextureSignClass(texture_util::SwizzleSigns(
+              regs.GetTextureFetch(fetch_constant)))
+          << (2 * fetch_constant);
+    }
+  }
+  pipeline_cache_->SetTextureSignClasses(texture_sign_classes);
 
   // Create the pipeline (for this, need the render pass from the render target
   // cache), translating the shaders - doing this now to obtain the used

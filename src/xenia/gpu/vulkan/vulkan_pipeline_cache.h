@@ -180,6 +180,12 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
       uint32_t normalized_color_mask,
       bool apply_polygon_offset_in_shader) const;
 
+  // The texture sign classes of the pixel shader of the next ConfigurePipeline
+  // calls (PipelineDescription::texture_sign_classes).
+  void SetTextureSignClasses(uint32_t texture_sign_classes) {
+    texture_sign_classes_ = texture_sign_classes;
+  }
+
   // The ucode interpreter placeholder defers translation by not calling this on
   // the draw thread; the creation thread calls it (passing its own worker
   // translator, since the shared one is single-threaded). nullptr uses the
@@ -317,6 +323,11 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
     // Survey draw for conditional rendering (FSI + occlusion_query_viz).
     // Selects the depth-only fragment shader. Surveys don't have a guest PS.
     uint32_t viz_survey : 1;  // 11
+    // spirv_texture_sign_specialization: the sign class
+    // (SpirvShaderTranslator::TextureSignClass) of each of the fetch constants
+    // 0-7 the pixel shader fetches, 2 bits each - its specialization
+    // constants. Zero is handled at runtime by the shader.
+    uint32_t texture_sign_classes : 16;  // 27
 
     // Filled only for the attachments present in the render pass object.
     PipelineRenderTarget render_targets[xenos::kMaxColorRenderTargets];
@@ -341,8 +352,8 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
       }
     };
 
-    // Bumped for the line geometry shader widening geometry_shader.
-    static constexpr uint32_t kVersion = 0x20260926;
+    // Bumped for texture_sign_classes.
+    static constexpr uint32_t kVersion = 0x20261109;
   });
 
   // Pipeline storage constants.
@@ -476,6 +487,9 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
   VulkanCommandProcessor& command_processor_;
   const RegisterFile& register_file_;
   VulkanRenderTargetCache& render_target_cache_;
+
+  // SetTextureSignClasses.
+  uint32_t texture_sign_classes_ = 0;
   VkShaderStageFlags guest_shader_vertex_stages_;
   bool zpd_hybrid_supported_;
 

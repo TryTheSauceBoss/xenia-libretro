@@ -20,6 +20,7 @@
 #include "xenia/gpu/spirv_compatibility.h"
 
 DECLARE_bool(spirv_fine_derivatives);
+DECLARE_bool(spirv_texture_sign_specialization);
 
 namespace xe {
 namespace gpu {
@@ -1762,6 +1763,26 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
                                    uniform_system_constants_, id_vector_temp_),
                                spv::NoPrecision);
       uint32_t swizzled_signs_word_offset = 8 * (fetch_constant_index & 3);
+      // The signs the pipeline may make known as a specialization constant
+      // (spirv_texture_sign_specialization): the host compiler then folds all
+      // the sign handling below.
+      if (is_pixel_shader() && cvars::spirv_texture_sign_specialization &&
+          fetch_constant_index < kTextureSignClassFetchConstantCount) {
+        spv::Id sign_class =
+            GetTextureSignClassSpecConstant(fetch_constant_index);
+        for (uint32_t sign_class_value = kTextureSignClassUnsigned;
+             sign_class_value <= kTextureSignClassGamma; ++sign_class_value) {
+          spv::Id is_sign_class = builder_->createBinOp(
+              spv::OpIEqual, type_bool_, sign_class,
+              builder_->makeUintConstant(sign_class_value));
+          swizzled_signs_word = builder_->createTriOp(
+              spv::OpSelect, type_uint_, is_sign_class,
+              builder_->makeUintConstant(
+                  GetTextureSignClassSwizzledSigns(sign_class_value)
+                  << swizzled_signs_word_offset),
+              swizzled_signs_word);
+        }
+      }
 
       spv::Builder::TextureParameters texture_parameters = {};
 

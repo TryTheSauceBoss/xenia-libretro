@@ -661,6 +661,44 @@ class SpirvShaderTranslator : public ShaderTranslator {
   // Piecewise-linear gamma conversions for k_8_8_8_8_GAMMA values stored as
   // linear UNORM16. Values may be scalars or vectors of up to 3 components.
   // Unless pre_saturated is true, inputs are clamped to [0, 1] (NaN to 0).
+  // spirv_texture_sign_specialization: the swizzled signs (2 bits for each of
+  // the 4 result components) of the textures of the first fetch constants a
+  // pixel shader fetches, known per pipeline as specialization constants
+  // (SpecId kSpecIdTextureSignClassFirst + fetch constant index), so the host
+  // compiler folds the branches and selects handling the signs at runtime.
+  // Patterns other than these are left to the runtime handling.
+  static constexpr uint32_t kTextureSignClassFetchConstantCount = 8;
+  static constexpr uint32_t kSpecIdTextureSignClassFirst = 1000;
+  enum TextureSignClass : uint32_t {
+    kTextureSignClassRuntime,
+    // All components unsigned.
+    kTextureSignClassUnsigned,
+    // X, Y and Z gamma, W unsigned (gamma color with linear alpha).
+    kTextureSignClassGammaXYZ,
+    // All components gamma.
+    kTextureSignClassGamma,
+  };
+  static uint32_t GetTextureSignClassSwizzledSigns(uint32_t sign_class) {
+    switch (sign_class) {
+      case kTextureSignClassGammaXYZ:
+        return uint32_t(xenos::TextureSign::kGamma) * 0b00010101;
+      case kTextureSignClassGamma:
+        return uint32_t(xenos::TextureSign::kGamma) * 0b01010101;
+      default:
+        return uint32_t(xenos::TextureSign::kUnsigned) * 0b01010101;
+    }
+  }
+  static uint32_t GetTextureSignClass(uint32_t swizzled_signs) {
+    for (uint32_t sign_class = kTextureSignClassUnsigned;
+         sign_class <= kTextureSignClassGamma; ++sign_class) {
+      if ((swizzled_signs & 0xFF) ==
+          GetTextureSignClassSwizzledSigns(sign_class)) {
+        return sign_class;
+      }
+    }
+    return kTextureSignClassRuntime;
+  }
+
   static spv::Id PWLGammaToLinear(SpirvBuilder* builder_, spv::Id value,
                                   bool pre_saturated,
                                   spv::Id ext_inst_glsl_std_450);
@@ -1192,6 +1230,12 @@ class SpirvShaderTranslator : public ShaderTranslator {
   // and stencil testing with fragment shader interlock.
   bool is_depth_only_fragment_shader_ = false;
   bool is_viz_survey_fragment_shader_ = false;
+
+  // spirv_texture_sign_specialization: the specialization constant of the
+  // texture sign class of each fetch constant, created on first use.
+  std::array<spv::Id, kTextureSignClassFetchConstantCount>
+      texture_sign_class_spec_constants_;
+  spv::Id GetTextureSignClassSpecConstant(uint32_t fetch_constant_index);
 
   std::unique_ptr<SpirvBuilder> builder_;
 
