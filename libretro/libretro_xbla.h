@@ -14,11 +14,11 @@
 
 namespace xbla {
 
-// The folder the packages go in: <system>/Xenia-Edge/xbla. Any layout under
+// The folder the packages go in: <system>/Xenia-Edge-Xendroid/xbla. Any layout under
 // it works, the console's own (<Title ID>/000D0000/<package>) included.
 std::filesystem::path folder(const std::filesystem::path &root);
 
-// <system>/Xenia-Edge/xbla_folders.txt: more folders to look in, one a line
+// <system>/Xenia-Edge-Xendroid/xbla_folders.txt: more folders to look in, one a line
 // (an SD card's, say); written with only comments when missing.
 std::filesystem::path folders_file(const std::filesystem::path &root);
 

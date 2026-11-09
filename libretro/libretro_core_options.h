@@ -303,7 +303,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
         "xenia_unlock_framerate",
         "Unlock Framerate",
         "Unlock Framerate",
-        "Only for games whose logic is not tied to their frame rate, else they run too fast. 30 fps games at 60: two vblanks for each frame RetroArch shows. 60 fps games at 120: the core at 120 frames a second (set RetroArch and the display up for it). 30 fps: the core gives RetroArch 30 frames a second while the game still sees 60 vblanks, for games that run at 30 or to run a 60 fps game at 30. Uncapped: vblanks as fast as possible. Listed games: the rate system/Xenia-Edge/xenia_framerate_unlock.txt gives the running game, if it lists it. Can be changed while a game runs.",
+        "Only for games whose logic is not tied to their frame rate, else they run too fast. 30 fps games at 60: two vblanks for each frame RetroArch shows. 60 fps games at 120: the core at 120 frames a second (set RetroArch and the display up for it). 30 fps: the core gives RetroArch 30 frames a second while the game still sees 60 vblanks, for games that run at 30 or to run a 60 fps game at 30. Uncapped: vblanks as fast as possible. Listed games: the rate system/Xenia-Edge-Xendroid/xenia_framerate_unlock.txt gives the running game, if it lists it. Can be changed while a game runs.",
         NULL,
         "Graphics",
         {

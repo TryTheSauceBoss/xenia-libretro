@@ -1,4 +1,4 @@
-# xenia_edge_libretro: the libretro core, a shared library linked from the
+# xenia_edge_xendroid_libretro: the libretro core, a shared library linked from the
 # emulator's static libraries, without the standalone app's UI.
 
 add_library(xenia-libretro SHARED
@@ -52,11 +52,11 @@ if(WIN32)
   endif()
 endif()
 
-# RetroArch's names: xenia_edge_libretro.so / .dll / .dylib, and
-# xenia_edge_libretro_android.so on Android
-set(_xe_libretro_name xenia_edge_libretro)
+# RetroArch's names: xenia_edge_xendroid_libretro.so / .dll / .dylib, and
+# xenia_edge_xendroid_libretro_android.so on Android
+set(_xe_libretro_name xenia_edge_xendroid_libretro)
 if(ANDROID)
-  set(_xe_libretro_name xenia_edge_libretro_android)
+  set(_xe_libretro_name xenia_edge_xendroid_libretro_android)
 endif()
 set_target_properties(xenia-libretro PROPERTIES
   OUTPUT_NAME ${_xe_libretro_name}

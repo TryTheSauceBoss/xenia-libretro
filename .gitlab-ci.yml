@@ -24,7 +24,7 @@ variables:
 
 .core-defs:
   variables:
-    CORENAME: xenia_edge
+    CORENAME: xenia_edge_xendroid
 
 include:
   # Linux

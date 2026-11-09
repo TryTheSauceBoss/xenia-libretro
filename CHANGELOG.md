@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- This is now its own core, "Xenia Edge (Xendroid+)", installed beside the plain Xenia Edge core instead of replacing it: the file is `xenia_edge_xendroid_libretro_android.so` (`xenia_edge_xendroid_libretro` elsewhere), RetroArch keeps its options apart, and everything the core keeps moved to `system/Xenia-Edge-Xendroid/`. Copy `system/Xenia-Edge/content/` there to keep your saves and profiles.
 - Fixed a game unregistering an audio client twice or with a bad index writing outside the core's client table, and a failed audio client leaving its slot unusable, from Xendroid+.
 - Cheaper texture reads on Adreno, from Xendroid+: the gamma-to-linear conversion only runs when a texture actually is gamma, instead of being computed for every texture and thrown away (sign handling was about 12% of Forza Horizon's main pass).
 - Fixed network select calls on Android, from Xendroid+: a socket closed by another thread or a stale handle no longer crashes the core, and sockets are actually checked (POSIX needs the highest descriptor, which games never pass).

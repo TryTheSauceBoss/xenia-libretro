@@ -746,9 +746,9 @@ static std::string s_notice;
 // Dialog Notifications: whether an answered dialog is shown as one
 static std::atomic<bool> s_dialog_notices{true};
 
-// system/Xenia-Edge, where the core keeps everything (xenia_setup_and_launch)
+// system/Xenia-Edge-Xendroid, where the core keeps everything (xenia_setup_and_launch)
 static std::filesystem::path xenia_root_dir(void) {
-    return std::filesystem::path(core_state.system_dir) / "Xenia-Edge";
+    return std::filesystem::path(core_state.system_dir) / "Xenia-Edge-Xendroid";
 }
 
 // No D3D12 device on this Windows machine: the Graphics API option is hidden
@@ -793,7 +793,7 @@ static void publish_core_options(void) {
 }
 
 // Each patch file of the game, as bundled, with is_enabled from its option,
-// into system/Xenia-Edge/patches, where Xenia reads them at boot
+// into system/Xenia-Edge-Xendroid/patches, where Xenia reads them at boot
 static void write_patch_files(void) {
     gamedb::write_patch_files(xenia_root_dir() / "patches",
         [](const gamedb::PatchOption &p) {
@@ -1486,7 +1486,7 @@ static void write_embedded_dxil(const std::filesystem::path &dir) {
 // A profile signed in to the first slot, as many titles ask for one before
 // they start: standalone makes them in its UI, the core makes one itself,
 // named after the frontend's username, and signs in the first it has after
-// system/Xenia-Edge, set in xenia_setup_and_launch
+// system/Xenia-Edge-Xendroid, set in xenia_setup_and_launch
 static std::filesystem::path xenia_root;
 
 // Guest swaps and vblanks (command_processor.cc), for the run stats
@@ -1495,7 +1495,7 @@ using xe::gpu::g_guest_swaps;
 using xe::gpu::g_guest_vblanks;
 
 static void xenia_sign_in(void) {
-    // system/Xenia-Edge/xbl_profilename.txt is there to be edited: made with
+    // system/Xenia-Edge-Xendroid/xbl_profilename.txt is there to be edited: made with
     // the default name whenever it is missing, never overwritten (NNshi)
     const std::filesystem::path name_file = xenia_root / "xbl_profilename.txt";
     {
@@ -1513,7 +1513,7 @@ static void xenia_sign_in(void) {
         profiles->Login(profiles->GetAccounts()->begin()->first, 0);
         return;
     }
-    // The name from system/Xenia-Edge/xbl_profilename.txt, its first line,
+    // The name from system/Xenia-Edge-Xendroid/xbl_profilename.txt, its first line,
     // rather than RetroArch's username (NNshi); "Player" when there is none.
     // A gamertag: letters, digits and single spaces, starting with a letter,
     // 15 at most
@@ -1542,7 +1542,7 @@ static void xenia_sign_in(void) {
 }
 
 // Install Content as in standalone Xenia Edge, without a dialog (NNshi):
-// packages put in system/Xenia-Edge/install, in its root or in subfolders,
+// packages put in system/Xenia-Edge-Xendroid/install, in its root or in subfolders,
 // are installed at the next start with the standalone's own installer
 // (content/<XUID>/<title ID>/<content type>/<file name>, and its header),
 // and then removed from install, with the folders left empty. A file that
@@ -1617,7 +1617,7 @@ static bool xenia_setup_and_launch(const char *path) {
         // title updates, DLC), caches and its log - in a folder of its own in
         // the system directory, as the other cores do (NNshi); nothing in the
         // frontend's own folder.
-        fs::path root    = fs::path(core_state.system_dir) / "Xenia-Edge";
+        fs::path root    = fs::path(core_state.system_dir) / "Xenia-Edge-Xendroid";
         xenia_root = root;
         fs::path storage = root;
         fs::path content = root / "content";
@@ -1669,7 +1669,7 @@ static bool xenia_setup_and_launch(const char *path) {
 #endif
             s_logging_initialized = true;
         }
-        XELOGI("Xenia Edge libretro core {}, built from commit {}",
+        XELOGI("Xenia Edge (Xendroid+) libretro core {}, built from commit {}",
                XENIA_LIBRETRO_VERSION, XENIA_LIBRETRO_COMMIT);
 
         xenia_emulator = std::make_unique<xe::Emulator>(
@@ -1999,7 +1999,7 @@ RETRO_API void retro_set_input_poll(retro_input_poll_t cb)            { core_sta
 RETRO_API void retro_set_input_state(retro_input_state_t cb)          { core_state.input_state_cb = cb; }
 
 RETRO_API void retro_init(void) {
-    xenia_log(RETRO_LOG_INFO, "Xenia Edge libretro core %s, built from commit %s\n",
+    xenia_log(RETRO_LOG_INFO, "Xenia Edge (Xendroid+) libretro core %s, built from commit %s\n",
               XENIA_LIBRETRO_VERSION, XENIA_LIBRETRO_COMMIT);
     core_state.audio_sample_rate  = 48000.0;
     core_state.audio_buffer_size  = 6 * 4096;   // int16 values (4096 frames of 5.1)
@@ -2014,7 +2014,7 @@ RETRO_API void retro_init(void) {
     core_state.pal_mode         = false;
 
     // Xbox Live Arcade and Games on Demand packages have no file extension,
-    // which RetroArch's file browser hides: the ones in system/Xenia-Edge/xbla
+    // which RetroArch's file browser hides: the ones in system/Xenia-Edge-Xendroid/xbla
     // get an .m3u each, there, before the player picks content
     if (core_state.system_dir[0]) {
         const int games = xbla::make_shortcuts(xenia_root_dir(),
@@ -2037,7 +2037,10 @@ RETRO_API void retro_deinit(void) {
 
 RETRO_API void retro_get_system_info(struct retro_system_info *info) {
     memset(info, 0, sizeof(*info));
-    info->library_name     = "Xenia Edge";
+    // A core of its own, installed beside the plain Xenia Edge core: its own
+    // name (RetroArch keeps its options and overrides under it), file name
+    // and system folder
+    info->library_name     = "Xenia Edge (Xendroid+)";
     // Upstream's version and this core's commit, as rpcs3-libretro's: which
     // build a tester runs shows in RetroArch itself (NNshi)
     info->library_version  = XENIA_LIBRETRO_VERSION " (libretro core " XENIA_LIBRETRO_COMMIT ")";
