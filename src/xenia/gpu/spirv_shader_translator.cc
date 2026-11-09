@@ -91,6 +91,24 @@ DEFINE_bool(
     "(startup).",
     "GPU");
 
+DEFINE_bool(
+    spirv_texture_sign_specialization_used, true,
+    "With spirv_texture_sign_specialization: specialize the signs of the "
+    "first 8 distinct fetch constants each pixel shader fetches, whichever "
+    "they are - false: those of fetch constants 0-7 (Forza Horizon's big "
+    "shaders also read fetch constant 13). Read when shaders are translated "
+    "(startup).",
+    "GPU");
+
+DEFINE_bool(
+    spirv_texture_exp_adjust_specialization, true,
+    "Pixel shaders know per pipeline (a specialization constant) whether "
+    "every texture they fetch has a zero exponent adjustment in its fetch "
+    "constant - then the multiplication of each fetched component by 2^0 is "
+    "folded away by the host compiler; otherwise it's done as before. Read "
+    "when shaders are translated (startup).",
+    "GPU");
+
 DEFINE_bool(spirv_pixel_interlock_only, false,
             "Use PixelInterlockOrderedEXT even where the device offers sample "
             "interlock, matching what the D3D12 backend always does. Sample "
@@ -369,6 +387,8 @@ void SpirvShaderTranslator::Reset() {
 
   sampler_bindings_.clear();
   texture_sign_class_spec_constants_.fill(spv::NoResult);
+  texture_sign_class_slots_.fill(uint8_t(kTextureSignClassFetchConstantCount));
+  texture_exp_adjust_zero_spec_constant_ = spv::NoResult;
   texture_bindings_.clear();
 
   main_interface_.clear();
@@ -516,6 +536,15 @@ void SpirvShaderTranslator::BisectOverrideColorOutput() {
 }
 
 void SpirvShaderTranslator::StartTranslation() {
+  // The texture sign class slot of each fetch constant
+  // (spirv_texture_sign_specialization).
+  texture_sign_class_slots_.fill(uint8_t(kTextureSignClassFetchConstantCount));
+  if (is_pixel_shader() && cvars::spirv_texture_sign_specialization) {
+    GetTextureSignClassSlots(current_shader(),
+                             cvars::spirv_texture_sign_specialization_used,
+                             texture_sign_class_slots_);
+  }
+
   // TODO(Triang3l): Logger.
   builder_ = std::make_unique<SpirvBuilder>(
       features_.spirv_version, (kSpirvMagicToolId << 16) | 1, nullptr);
@@ -5055,22 +5084,54 @@ void SpirvShaderTranslator::StoreUint32ToSharedMemory(
   binding_switch.makeEndSwitch();
 }
 
-spv::Id SpirvShaderTranslator::GetTextureSignClassSpecConstant(
-    uint32_t fetch_constant_index) {
-  assert_true(fetch_constant_index < kTextureSignClassFetchConstantCount);
-  spv::Id& spec_constant =
-      texture_sign_class_spec_constants_[fetch_constant_index];
+void SpirvShaderTranslator::GetTextureSignClassSlots(
+    const Shader& shader, bool by_use, std::array<uint8_t, 32>& slots_out) {
+  slots_out.fill(uint8_t(kTextureSignClassFetchConstantCount));
+  if (!by_use) {
+    for (uint32_t i = 0; i < kTextureSignClassFetchConstantCount; ++i) {
+      slots_out[i] = uint8_t(i);
+    }
+    return;
+  }
+  uint32_t fetch_constants_remaining = 0;
+  for (const Shader::TextureBinding& texture_binding :
+       shader.texture_bindings()) {
+    fetch_constants_remaining |= uint32_t(1) << texture_binding.fetch_constant;
+  }
+  uint32_t slot = 0;
+  uint32_t fetch_constant;
+  while (slot < kTextureSignClassFetchConstantCount &&
+         xe::bit_scan_forward(fetch_constants_remaining, &fetch_constant)) {
+    fetch_constants_remaining &= ~(uint32_t(1) << fetch_constant);
+    slots_out[fetch_constant] = uint8_t(slot++);
+  }
+}
+
+spv::Id SpirvShaderTranslator::GetTextureSignClassSpecConstant(uint32_t slot) {
+  assert_true(slot < kTextureSignClassFetchConstantCount);
+  spv::Id& spec_constant = texture_sign_class_spec_constants_[slot];
   if (spec_constant == spv::NoResult) {
     spec_constant =
         builder_->makeUintConstant(uint32_t(kTextureSignClassRuntime), true);
-    builder_->addName(
-        spec_constant,
-        fmt::format("xe_texture_sign_class_{}", fetch_constant_index).c_str());
-    builder_->addDecoration(
-        spec_constant, spv::DecorationSpecId,
-        int(kSpecIdTextureSignClassFirst + fetch_constant_index));
+    builder_->addName(spec_constant,
+                      fmt::format("xe_texture_sign_class_{}", slot).c_str());
+    builder_->addDecoration(spec_constant, spv::DecorationSpecId,
+                            int(kSpecIdTextureSignClassFirst + slot));
   }
   return spec_constant;
+}
+
+spv::Id SpirvShaderTranslator::GetTextureExpAdjustZeroSpecConstant() {
+  if (texture_exp_adjust_zero_spec_constant_ == spv::NoResult) {
+    texture_exp_adjust_zero_spec_constant_ =
+        builder_->makeBoolConstant(false, true);
+    builder_->addName(texture_exp_adjust_zero_spec_constant_,
+                      "xe_texture_exp_adjust_zero");
+    builder_->addDecoration(texture_exp_adjust_zero_spec_constant_,
+                            spv::DecorationSpecId,
+                            int(kSpecIdTextureExpAdjustZero));
+  }
+  return texture_exp_adjust_zero_spec_constant_;
 }
 
 spv::Id SpirvShaderTranslator::PWLGammaToLinear(

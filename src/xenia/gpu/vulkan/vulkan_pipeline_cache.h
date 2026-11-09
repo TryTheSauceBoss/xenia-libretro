@@ -185,6 +185,11 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
   void SetTextureSignClasses(uint32_t texture_sign_classes) {
     texture_sign_classes_ = texture_sign_classes;
   }
+  // PipelineDescription::texture_exp_adjust_zero of the next ConfigurePipeline
+  // calls.
+  void SetTextureExpAdjustZero(bool texture_exp_adjust_zero) {
+    texture_exp_adjust_zero_ = texture_exp_adjust_zero;
+  }
 
   // The ucode interpreter placeholder defers translation by not calling this on
   // the draw thread; the creation thread calls it (passing its own worker
@@ -325,9 +330,14 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
     uint32_t viz_survey : 1;  // 11
     // spirv_texture_sign_specialization: the sign class
     // (SpirvShaderTranslator::TextureSignClass) of each of the fetch constants
-    // 0-7 the pixel shader fetches, 2 bits each - its specialization
-    // constants. Zero is handled at runtime by the shader.
+    // slots of the pixel shader fetches (fetch constants 0-7, or the first 8
+    // it fetches - SpirvShaderTranslator::GetTextureSignClassSlots), 2 bits
+    // each - its specialization constants. Zero is handled at runtime by the
+    // shader.
     uint32_t texture_sign_classes : 16;  // 27
+    // spirv_texture_exp_adjust_specialization: every texture the pixel shader
+    // fetches has a zero exponent adjustment - its specialization constant.
+    uint32_t texture_exp_adjust_zero : 1;  // 28
 
     // Filled only for the attachments present in the render pass object.
     PipelineRenderTarget render_targets[xenos::kMaxColorRenderTargets];
@@ -352,8 +362,8 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
       }
     };
 
-    // Bumped for texture_sign_classes.
-    static constexpr uint32_t kVersion = 0x20261109;
+    // Bumped for texture_sign_classes and texture_exp_adjust_zero.
+    static constexpr uint32_t kVersion = 0x2026110A;
   });
 
   // Pipeline storage constants.
@@ -490,6 +500,7 @@ class VulkanPipelineCache : public GuestSpirvShaderCache::Host {
 
   // SetTextureSignClasses.
   uint32_t texture_sign_classes_ = 0;
+  bool texture_exp_adjust_zero_ = false;
   VkShaderStageFlags guest_shader_vertex_stages_;
   bool zpd_hybrid_supported_;
 

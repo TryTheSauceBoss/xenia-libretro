@@ -669,6 +669,16 @@ class SpirvShaderTranslator : public ShaderTranslator {
   // Patterns other than these are left to the runtime handling.
   static constexpr uint32_t kTextureSignClassFetchConstantCount = 8;
   static constexpr uint32_t kSpecIdTextureSignClassFirst = 1000;
+  // spirv_texture_exp_adjust_specialization: whether every texture the pixel
+  // shader fetches has a zero exponent adjustment (a bool).
+  static constexpr uint32_t kSpecIdTextureExpAdjustZero = 1010;
+  // The sign class slot of each of the 32 fetch constants,
+  // kTextureSignClassFetchConstantCount for none: with by_use
+  // (spirv_texture_sign_specialization_used) the first 8 distinct fetch
+  // constants the shader fetches, otherwise fetch constants 0-7. The pipelines
+  // give the slots their values in the same order.
+  static void GetTextureSignClassSlots(const Shader& shader, bool by_use,
+                                       std::array<uint8_t, 32>& slots_out);
   enum TextureSignClass : uint32_t {
     kTextureSignClassRuntime,
     // All components unsigned.
@@ -1235,7 +1245,12 @@ class SpirvShaderTranslator : public ShaderTranslator {
   // texture sign class of each fetch constant, created on first use.
   std::array<spv::Id, kTextureSignClassFetchConstantCount>
       texture_sign_class_spec_constants_;
-  spv::Id GetTextureSignClassSpecConstant(uint32_t fetch_constant_index);
+  spv::Id GetTextureSignClassSpecConstant(uint32_t slot);
+  // The slot of each fetch constant (GetTextureSignClassSlots).
+  std::array<uint8_t, 32> texture_sign_class_slots_;
+  // spirv_texture_exp_adjust_specialization, created on first use.
+  spv::Id texture_exp_adjust_zero_spec_constant_;
+  spv::Id GetTextureExpAdjustZeroSpecConstant();
 
   std::unique_ptr<SpirvBuilder> builder_;
 

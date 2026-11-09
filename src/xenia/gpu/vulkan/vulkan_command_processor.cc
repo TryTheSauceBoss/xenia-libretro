@@ -40,6 +40,8 @@
 
 DECLARE_bool(clear_memory_page_state);
 DECLARE_bool(spirv_texture_sign_specialization);
+DECLARE_bool(spirv_texture_sign_specialization_used);
+DECLARE_bool(spirv_texture_exp_adjust_specialization);
 DECLARE_bool(gpu_debug_markers);
 DECLARE_bool(memexport_enable);
 DECLARE_bool(submit_on_primary_buffer_end);
@@ -4011,20 +4013,39 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
   // or gamma) give the same zeros.
   uint32_t texture_sign_classes = 0;
   if (pixel_shader && cvars::spirv_texture_sign_specialization) {
+    // The slots the translator gave the fetch constants.
+    std::array<uint8_t, 32> texture_sign_class_slots;
+    SpirvShaderTranslator::GetTextureSignClassSlots(
+        *pixel_shader, cvars::spirv_texture_sign_specialization_used,
+        texture_sign_class_slots);
     for (const Shader::TextureBinding& texture_binding :
          pixel_shader->texture_bindings()) {
       const uint32_t fetch_constant = texture_binding.fetch_constant;
-      if (fetch_constant >=
-          SpirvShaderTranslator::kTextureSignClassFetchConstantCount) {
+      const uint32_t slot = texture_sign_class_slots[fetch_constant];
+      if (slot >= SpirvShaderTranslator::kTextureSignClassFetchConstantCount) {
         continue;
       }
       texture_sign_classes |=
           SpirvShaderTranslator::GetTextureSignClass(texture_util::SwizzleSigns(
               regs.GetTextureFetch(fetch_constant)))
-          << (2 * fetch_constant);
+          << (2 * slot);
     }
   }
   pipeline_cache_->SetTextureSignClasses(texture_sign_classes);
+  // Whether every texture of the pixel shader has a zero exponent adjustment
+  // (spirv_texture_exp_adjust_specialization; word 3 bits 13:18).
+  bool texture_exp_adjust_zero = false;
+  if (pixel_shader && cvars::spirv_texture_exp_adjust_specialization) {
+    texture_exp_adjust_zero = true;
+    for (const Shader::TextureBinding& texture_binding :
+         pixel_shader->texture_bindings()) {
+      if (regs.GetTextureFetch(texture_binding.fetch_constant).exp_adjust) {
+        texture_exp_adjust_zero = false;
+        break;
+      }
+    }
+  }
+  pipeline_cache_->SetTextureExpAdjustZero(texture_exp_adjust_zero);
 
   // Create the pipeline (for this, need the render pass from the render target
   // cache), translating the shaders - doing this now to obtain the used

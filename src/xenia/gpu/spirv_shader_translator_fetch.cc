@@ -21,6 +21,7 @@
 
 DECLARE_bool(spirv_fine_derivatives);
 DECLARE_bool(spirv_texture_sign_specialization);
+DECLARE_bool(spirv_texture_exp_adjust_specialization);
 
 namespace xe {
 namespace gpu {
@@ -1766,10 +1767,12 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
       // The signs the pipeline may make known as a specialization constant
       // (spirv_texture_sign_specialization): the host compiler then folds all
       // the sign handling below.
+      const uint32_t texture_sign_class_slot =
+          texture_sign_class_slots_[fetch_constant_index];
       if (is_pixel_shader() && cvars::spirv_texture_sign_specialization &&
-          fetch_constant_index < kTextureSignClassFetchConstantCount) {
+          texture_sign_class_slot < kTextureSignClassFetchConstantCount) {
         spv::Id sign_class =
-            GetTextureSignClassSpecConstant(fetch_constant_index);
+            GetTextureSignClassSpecConstant(texture_sign_class_slot);
         for (uint32_t sign_class_value = kTextureSignClassUnsigned;
              sign_class_value <= kTextureSignClassGamma; ++sign_class_value) {
           spv::Id is_sign_class = builder_->createBinOp(
@@ -3062,6 +3065,15 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
                                   fetch_constant_word_3_signed,
                                   builder_->makeUintConstant(13),
                                   builder_->makeUintConstant(6)));
+        // spirv_texture_exp_adjust_specialization: 1 where the pipeline knows
+        // every exponent adjustment is zero, so x * 1 folds.
+        if (is_pixel_shader() &&
+            cvars::spirv_texture_exp_adjust_specialization) {
+          result_exponent_bias = builder_->createTriOp(
+              spv::OpSelect, type_float_,
+              GetTextureExpAdjustZeroSpecConstant(), const_float_1_,
+              result_exponent_bias);
+        }
         {
           uint32_t result_remaining_components = used_result_nonzero_components;
           uint32_t result_component_index;

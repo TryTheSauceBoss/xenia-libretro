@@ -1252,6 +1252,7 @@ bool VulkanPipelineCache::GetCurrentStateDescription(
         pixel_shader->shader().ucode_data_hash();
     description_out.pixel_shader_modification = pixel_shader->modification();
     description_out.texture_sign_classes = texture_sign_classes_ & 0xFFFF;
+    description_out.texture_exp_adjust_zero = texture_exp_adjust_zero_ ? 1 : 0;
   }
   description_out.render_pass_key = render_pass_key;
   description_out.zpd_total = uint32_t(zpd_total);
@@ -1857,12 +1858,14 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
   shader_stage_fragment.module = VK_NULL_HANDLE;
   shader_stage_fragment.pName = "main";
   shader_stage_fragment.pSpecializationInfo = nullptr;
-  // The texture sign classes (spirv_texture_sign_specialization) - entries for
-  // constants a shader doesn't have are ignored.
+  // The texture sign classes (spirv_texture_sign_specialization), then whether
+  // the exponent adjustments are all zero
+  // (spirv_texture_exp_adjust_specialization) - entries for constants a shader
+  // doesn't have are ignored.
   VkSpecializationMapEntry texture_sign_class_map_entries
-      [SpirvShaderTranslator::kTextureSignClassFetchConstantCount];
+      [SpirvShaderTranslator::kTextureSignClassFetchConstantCount + 1];
   uint32_t texture_sign_class_values
-      [SpirvShaderTranslator::kTextureSignClassFetchConstantCount];
+      [SpirvShaderTranslator::kTextureSignClassFetchConstantCount + 1];
   VkSpecializationInfo texture_sign_class_specialization_info;
   if (fragment_shader_override != VK_NULL_HANDLE) {
     // Use the override shader (for placeholder pipelines).
@@ -1891,6 +1894,14 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
       map_entry.offset = uint32_t(sizeof(uint32_t) * texture_sign_class_count);
       map_entry.size = sizeof(uint32_t);
       texture_sign_class_values[texture_sign_class_count++] = sign_class;
+    }
+    if (description.texture_exp_adjust_zero) {
+      VkSpecializationMapEntry& map_entry =
+          texture_sign_class_map_entries[texture_sign_class_count];
+      map_entry.constantID = SpirvShaderTranslator::kSpecIdTextureExpAdjustZero;
+      map_entry.offset = uint32_t(sizeof(uint32_t) * texture_sign_class_count);
+      map_entry.size = sizeof(VkBool32);
+      texture_sign_class_values[texture_sign_class_count++] = VK_TRUE;
     }
     if (texture_sign_class_count) {
       texture_sign_class_specialization_info.mapEntryCount =
