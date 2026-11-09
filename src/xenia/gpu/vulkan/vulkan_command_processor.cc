@@ -56,6 +56,15 @@ DEFINE_bool(
     "Vulkan");
 
 DEFINE_bool(
+    vulkan_float_constants_full_range, true,
+    "Give the descriptors of the float constants the range of all 256 (4 KB) "
+    "rather than the range of the constants the shader reads: the descriptor "
+    "set then stays the same when the next shader reads a different number "
+    "of them, and only its dynamic offsets change. Shaders read only their "
+    "own constants, so the results are identical.",
+    "Vulkan");
+
+DEFINE_bool(
     vulkan_skip_redundant_fetch_constant_writes, true,
     "Don't invalidate texture bindings and the fetch and bool/loop constant "
     "buffers when a register write doesn't change the register's value. "
@@ -7114,8 +7123,19 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
     constant_buffer_offsets_changed = true;
     size_t uniform_buffer_alignment =
         size_t(vulkan_device->properties().minUniformBufferOffsetAlignment);
+    // vulkan_float_constants_full_range: the float constant descriptors get
+    // the range of all 256 constants, so the set stays the same when the next
+    // shader reads a different number of them.
+    constexpr size_t kFloatConstantsFullRange = sizeof(float) * 4 * 256;
+    const bool float_constants_full_range =
+        cvars::vulkan_float_constants_full_range;
     auto request_constant_buffer = [&](uint32_t index,
                                        size_t size) -> uint8_t* {
+      if (float_constants_full_range &&
+          (index == SpirvShaderTranslator::kConstantBufferFloatVertex ||
+           index == SpirvShaderTranslator::kConstantBufferFloatPixel)) {
+        size = std::max(size, kFloatConstantsFullRange);
+      }
       VkBuffer buffer = VK_NULL_HANDLE;
       VkDeviceSize offset = 0;
       uint8_t* mapping = uniform_buffer_pool_->Request(

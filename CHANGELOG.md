@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- Fewer descriptor set rewrites, from Xendroid+: shader constants are always bound with room for all 256 of them, so switching between shaders that read a different number of constants no longer rewrites the set.
 - Less CPU time lost while the GPU waits for the game, from Xendroid+: the GPU thread polls for new commands 32 times instead of 500 before it sleeps until the game sends some, leaving more of the phone's CPU to the game.
 - Cheaper pixel shaders, from Xendroid+: draws with the alpha test and alpha to coverage turned off get a shader without that code, instead of checking for it on every pixel.
 - Faster GPU register writes, from Xendroid+: the blocks of GPU registers a game writes at once (shader constants, texture settings) are copied in bulk, with the bookkeeping done once per block instead of once per register.
