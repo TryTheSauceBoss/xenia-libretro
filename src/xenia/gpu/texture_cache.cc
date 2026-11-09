@@ -76,6 +76,12 @@ DEFINE_bool(tiled_shared_memory, true,
             "support. Disable for graphics debugger compatibility.",
             "GPU.Debug");
 
+DEFINE_bool(texture_lookup_memo, true,
+            "Answer repeated texture cache lookups of the same key from a small "
+            "direct-mapped memo instead of hashing into the texture map. From "
+            "Xendroid+.",
+            "GPU");
+
 namespace xe {
 namespace gpu {
 
@@ -281,6 +287,7 @@ void TextureCache::CompletedSubmissionUpdated(
       ResetTextureBindings();
     }
     // Remove the texture from the map and destroy it via its unique_ptr.
+    ForgetTextureFindMemo(texture);
     auto found_texture_it = textures_.find(texture->key());
     assert_true(found_texture_it != textures_.end());
     if (found_texture_it != textures_.end()) {
@@ -816,8 +823,28 @@ void TextureCache::WatchCallback(const global_unique_lock_type& global_lock,
 
 void TextureCache::DestroyAllTextures(bool from_destructor) {
   ResetTextureBindings(from_destructor);
+  for (TextureFindMemoEntry& entry : texture_find_memo_) {
+    entry.texture = nullptr;
+  }
   textures_.clear();
   COUNT_profile_set("gpu/texture_cache/textures", 0);
+}
+
+uint32_t TextureCache::GetTextureFindMemoIndex(const TextureKey& key) {
+  static_assert(sizeof(TextureKey) == 2 * sizeof(uint64_t));
+  uint64_t words[2];
+  std::memcpy(words, &key, sizeof(words));
+  return uint32_t((((words[0] * UINT64_C(0x9E3779B97F4A7C15)) ^ words[1]) *
+                   UINT64_C(0xBF58476D1CE4E5B9)) >>
+                  (64 - kTextureFindMemoSizeLog2));
+}
+
+void TextureCache::ForgetTextureFindMemo(const Texture* texture) {
+  TextureFindMemoEntry& entry =
+      texture_find_memo_[GetTextureFindMemoIndex(texture->key())];
+  if (entry.texture == texture) {
+    entry.texture = nullptr;
+  }
 }
 
 TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
@@ -861,8 +888,20 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
   // Try to find an existing texture.
   // TODO(Triang3l): Reuse a texture with mip_page unchanged, but base_page
   // previously 0, now not 0, to save memory - common case in streaming.
+  // Draws keep asking for the same few textures; a direct-mapped memo answers
+  // them without hashing into textures_ (from Xendroid+).
+  const bool use_find_memo = cvars::texture_lookup_memo;
+  TextureFindMemoEntry& find_memo =
+      texture_find_memo_[GetTextureFindMemoIndex(key)];
+  if (use_find_memo && find_memo.texture && find_memo.key == key) {
+    return find_memo.texture;
+  }
   auto found_texture_it = textures_.find(key);
   if (found_texture_it != textures_.end()) {
+    if (use_find_memo) {
+      find_memo.key = key;
+      find_memo.texture = found_texture_it->second.get();
+    }
     return found_texture_it->second.get();
   }
 
@@ -877,6 +916,10 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
     assert_true(new_texture->key() == key);
     texture =
         textures_.emplace(key, std::move(new_texture)).first->second.get();
+  }
+  if (use_find_memo) {
+    find_memo.key = key;
+    find_memo.texture = texture;
   }
   COUNT_profile_set("gpu/texture_cache/textures", textures_.size());
   texture->LogAction("Created");
