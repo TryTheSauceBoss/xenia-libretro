@@ -1087,15 +1087,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
   VkDescriptorSet current_graphics_descriptor_sets_
       [SpirvShaderTranslator::kDescriptorSetCount];
   // vulkan_texture_descriptor_set_reuse: texture and sampler sets written in
-  // the current frame, by the hash of their layout, image views and samplers.
-  // The transient sets live until the frame completes. Cleared when the frame
-  // changes, or when a texture or sampler was destroyed since (one is
-  // destroyed once the last submission using it completes, which can be within
-  // the frame, and its handle may then be reused for another object).
+  // the current submission, by the hash of their layout, image views and
+  // samplers. Cleared when the submission changes: nothing a set written in
+  // the submission references can be destroyed before the submission
+  // completes, while the transient sets themselves live until the frame does.
   std::unordered_map<uint64_t, VkDescriptorSet> texture_set_reuse_;
-  uint64_t texture_set_reuse_frame_ = UINT64_MAX;
-  uint64_t texture_set_reuse_texture_generation_ = UINT64_MAX;
-  uint64_t texture_set_reuse_sampler_generation_ = UINT64_MAX;
+  uint64_t texture_set_reuse_submission_ = UINT64_MAX;
   // Draws recorded into the currently open submission, for
   // vulkan_mid_frame_submission_draws.
   uint32_t draws_since_submission_ = 0;

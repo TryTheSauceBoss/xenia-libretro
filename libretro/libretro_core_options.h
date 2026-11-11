@@ -892,11 +892,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
     /* ================================================================ */
     /* --- Xendroid+ Fixes ---                                           */
     /* ================================================================ */
+    /* Off by default, unlike in Xendroid+: added after the last build a
+       tester saw rendering correctly, so on only once one has. */
     {
         "xenia_xd_dynamic_state",
         "Dynamic Pipeline State (Restart)",
         "Dynamic Pipeline State (Restart)",
-        "Topology, culling, depth, stencil, depth clamp, fill mode and blending set per draw instead of baked into each pipeline: fewer pipelines to compile. From Xendroid+. Applies when the game is started again.",
+        "Topology, culling, depth, stencil, depth clamp, fill mode and blending set per draw instead of baked into each pipeline: fewer pipelines to compile, less stutter. From Xendroid+. Off by default: not yet seen working on a device. Applies when the game is started again.",
         NULL,
         "xendroid",
         {
@@ -904,13 +906,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_texture_set_reuse",
         "Texture Set Reuse (Restart)",
         "Texture Set Reuse (Restart)",
-        "A texture and sampler set written earlier in the frame with the same images is bound again instead of writing a new one. From Xendroid+. Applies when the game is started again.",
+        "A texture and sampler set written earlier in the same submission with the same images is bound again instead of writing a new one. From Xendroid+. Applies when the game is started again.",
         NULL,
         "xendroid",
         {
@@ -920,11 +922,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
         },
         "enabled"
     },
+    /* Off by default, unlike in Xendroid+: added after the last build a
+       tester saw rendering correctly, so on only once one has. */
     {
         "xenia_xd_sampler_cache",
         "Sampler Cache (Restart)",
         "Sampler Cache (Restart)",
-        "A draw with the same shader as the previous one keeps its samplers, working out again only those whose fetch constants changed. From Xendroid+. Applies when the game is started again.",
+        "A draw with the same shader as the previous one keeps its samplers, working out again only those whose fetch constants changed. From Xendroid+. Off by default: not yet seen working on a device. Applies when the game is started again.",
         NULL,
         "xendroid",
         {
@@ -932,27 +936,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_texture_signs",
         "Texture Sign Specialization (Restart)",
         "Texture Sign Specialization (Restart)",
         "The signs (plain, gamma) and scaling of the first 8 textures a pixel shader reads are baked into its pipeline, so the GPU skips the per-pixel handling. From Xendroid+. Applies when the game is started again.",
-        NULL,
-        "xendroid",
-        {
-            { "enabled", NULL },
-            { "disabled", NULL },
-            { NULL, NULL }
-        },
-        "enabled"
-    },
-    {
-        "xenia_xd_gamma_branch",
-        "Gamma Conversion Branch (Restart)",
-        "Gamma Conversion Branch (Restart)",
-        "Texture gamma-to-linear conversion only runs inside a branch for textures that are gamma, instead of being computed and discarded for all. From Xendroid+. Applies when the game is started again.",
         NULL,
         "xendroid",
         {

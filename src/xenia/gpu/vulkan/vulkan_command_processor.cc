@@ -63,7 +63,7 @@ DEFINE_bool(
 DEFINE_bool(
     vulkan_texture_descriptor_set_reuse, true,
     "Reuse a texture and sampler descriptor set written earlier in the same "
-    "frame with the same images and samplers, rather than only the one "
+    "submission with the same images and samplers, rather than only the one "
     "the previous draw had: draws often alternate between a few texture "
     "combinations. Results are identical.",
     "Vulkan");
@@ -99,11 +99,11 @@ DEFINE_int32(
     "GPU");
 
 DEFINE_bool(
-    vulkan_cache_sampler_parameters, true,
+    vulkan_cache_sampler_parameters, false,
     "Reuse sampler parameters and VkSampler handles across draws, deriving "
     "them again only for fetch constants written since the previous draw (or "
-    "on a shader change, a new submission, or a sampler destruction). Disable "
-    "to derive and look up every sampler on every draw.",
+    "on a shader change, a new submission, or a sampler destruction). Off by "
+    "default until it has been seen working on a device.",
     "Vulkan");
 
 DEFINE_bool(
@@ -7644,24 +7644,17 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
   }
 
   // vulkan_texture_descriptor_set_reuse: bind a set already written in this
-  // frame with the same layout, images and samplers instead of writing a new
-  // one.
+  // submission with the same layout, images and samplers instead of writing a
+  // new one.
   uint64_t texture_set_hash_vertex = 0, texture_set_hash_pixel = 0;
   const bool texture_set_reuse =
       cvars::vulkan_texture_descriptor_set_reuse &&
       (write_vertex_textures || write_pixel_textures);
   if (texture_set_reuse) {
-    const uint64_t texture_generation =
-        texture_cache_->texture_destroy_generation();
-    const uint64_t sampler_generation =
-        texture_cache_->sampler_destroy_generation();
-    if (texture_set_reuse_frame_ != frame_current_ ||
-        texture_set_reuse_texture_generation_ != texture_generation ||
-        texture_set_reuse_sampler_generation_ != sampler_generation) {
+    uint64_t submission = GetCurrentSubmission();
+    if (texture_set_reuse_submission_ != submission) {
       texture_set_reuse_.clear();
-      texture_set_reuse_frame_ = frame_current_;
-      texture_set_reuse_texture_generation_ = texture_generation;
-      texture_set_reuse_sampler_generation_ = sampler_generation;
+      texture_set_reuse_submission_ = submission;
     }
     auto hash_set = [&](VkDescriptorSetLayout layout, size_t texture_offset,
                         uint32_t texture_count, size_t sampler_offset,

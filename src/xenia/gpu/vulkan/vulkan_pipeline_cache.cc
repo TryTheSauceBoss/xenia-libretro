@@ -58,7 +58,7 @@ namespace shaders {
 }  // namespace shaders
 
 DEFINE_bool(
-    vulkan_dynamic_pipeline_state, true,
+    vulkan_dynamic_pipeline_state, false,
     "On Vulkan 1.3 devices, set the primitive topology (within its class) and "
     "restart, cull mode, front face, depth test / write / compare op, stencil "
     "test and stencil ops of guest draws, and their depth clamp, polygon mode "
@@ -66,7 +66,8 @@ DEFINE_bool(
     "state instead of baking them into the pipelines, so "
     "draws that differ only in them share a pipeline - fewer pipelines to "
     "compile and less stutter. Not with the fragment shader interlock render "
-    "target path. From Xendroid+.",
+    "target path. From Xendroid+. Off by default until it has been seen "
+    "working on a device.",
     "Vulkan");
 
 DEFINE_int32(

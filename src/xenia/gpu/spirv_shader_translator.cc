@@ -79,19 +79,6 @@ DEFINE_bool(shader_bisect_cut, false,
             "GPU.Debug");
 
 DEFINE_bool(
-    spirv_texture_sign_branch, true,
-    "Convert gamma texture components to linear only inside a branch on "
-    "whether any component of the fetch is gamma (a uniform condition), "
-    "marked DontFlatten, with selects for the cheap signed and biased "
-    "components, instead of a switch per component. Mesa lowers such a "
-    "switch to ifs that it flattens, so the piecewise linear gamma conversion "
-    "runs for every component of every texture fetch and is discarded unless "
-    "the texture is gamma (texture sign handling took ~12% of the Forza "
-    "Horizon main pass on Adreno 825). Same results; read when shaders are "
-    "translated (startup).",
-    "GPU");
-
-DEFINE_bool(
     spirv_texture_sign_specialization, true,
     "Pixel shaders take the signs of the textures of fetch constants 0-7 "
     "(all unsigned, gamma color with linear alpha, all gamma) from "

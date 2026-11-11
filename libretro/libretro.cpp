@@ -188,7 +188,6 @@ DECLARE_bool(vulkan_texture_descriptor_set_reuse);
 DECLARE_bool(vulkan_cache_sampler_parameters);
 DECLARE_bool(spirv_texture_sign_specialization);
 DECLARE_bool(spirv_texture_exp_adjust_specialization);
-DECLARE_bool(spirv_texture_sign_branch);
 DECLARE_bool(spirv_specialize_no_alpha);
 DECLARE_bool(vulkan_fast_sampler_filterability);
 DECLARE_bool(vulkan_float_constants_full_range);
@@ -837,7 +836,6 @@ static const XendroidToggle *xendroid_toggles(size_t *count) {
         {"xenia_xd_texture_set_reuse", {&cvars::vulkan_texture_descriptor_set_reuse}},
         {"xenia_xd_sampler_cache", {&cvars::vulkan_cache_sampler_parameters}},
         {"xenia_xd_texture_signs", {&cvars::spirv_texture_sign_specialization, &cvars::spirv_texture_exp_adjust_specialization}},
-        {"xenia_xd_gamma_branch", {&cvars::spirv_texture_sign_branch}},
         {"xenia_xd_no_alpha_shaders", {&cvars::spirv_specialize_no_alpha}},
         {"xenia_xd_sampler_filterability", {&cvars::vulkan_fast_sampler_filterability}},
         {"xenia_xd_full_range_constants", {&cvars::vulkan_float_constants_full_range}},

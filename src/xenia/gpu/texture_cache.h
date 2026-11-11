@@ -123,12 +123,6 @@ class TextureCache {
   static uint32_t GuestToHostSwizzle(uint32_t guest_swizzle,
                                      uint32_t host_format_swizzle);
 
-  // Bumped whenever a texture (with its host views) is destroyed: a handle
-  // kept from before may now name another object.
-  uint64_t texture_destroy_generation() const {
-    return texture_destroy_generation_;
-  }
-
   void TextureFetchConstantWritten(uint32_t index) {
     texture_bindings_in_sync_ &= ~(UINT32_C(1) << index);
   }
@@ -806,8 +800,6 @@ class TextureCache {
       texture_find_memo_;
   static uint32_t GetTextureFindMemoIndex(const TextureKey& key);
   void ForgetTextureFindMemo(const Texture* texture);
-  // texture_destroy_generation().
-  uint64_t texture_destroy_generation_ = 0;
 
   uint64_t textures_total_host_memory_usage_ = 0;
 

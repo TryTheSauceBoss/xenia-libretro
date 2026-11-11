@@ -22,7 +22,6 @@
 DECLARE_bool(spirv_fine_derivatives);
 DECLARE_bool(spirv_texture_sign_specialization);
 DECLARE_bool(spirv_texture_exp_adjust_specialization);
-DECLARE_bool(spirv_texture_sign_branch);
 
 namespace xe {
 namespace gpu {
@@ -2653,115 +2652,7 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
         // to gamma-correct.
         spv::Id const_float_2 = builder_->makeFloatConstant(2.0f);
         spv::Id const_float_minus_1 = builder_->makeFloatConstant(-1.0f);
-        if (cvars::spirv_texture_sign_branch) {
-          // Mesa lowers the switch below to ifs without the DontFlatten
-          // control and flattens them, so the gamma conversion of every
-          // component would be computed and discarded for most textures.
-          // Select the cheap signed and biased results instead, and convert
-          // gamma only in a branch on whether any used component of this
-          // fetch is gamma - a uniform condition.
-          static_assert(uint32_t(xenos::TextureSign::kGamma) == 0b11,
-                        "Gamma is detected as both sign bits set");
-          spv::Id const_uint_sign_unsigned_biased = builder_->makeUintConstant(
-              uint32_t(xenos::TextureSign::kUnsignedBiased));
-          spv::Id const_uint_sign_gamma =
-              builder_->makeUintConstant(uint32_t(xenos::TextureSign::kGamma));
-          spv::Id sample_result_components_unsigned[4] = {};
-          uint32_t gamma_sign_bits = 0;
-          uint32_t result_remaining_components = used_result_nonzero_components;
-          uint32_t result_component_index;
-          while (xe::bit_scan_forward(result_remaining_components,
-                                      &result_component_index)) {
-            result_remaining_components &=
-                ~(UINT32_C(1) << result_component_index);
-            spv::Id sample_result_component_unsigned =
-                features_.image_view_format_swizzle
-                    ? builder_->createCompositeExtract(sample_result_unsigned,
-                                                       type_float_,
-                                                       result_component_index)
-                    : result[result_component_index];
-            sample_result_components_unsigned[result_component_index] =
-                sample_result_component_unsigned;
-            // Unsigned or signed. Without the image view swizzle, `result`
-            // already has the signed sample for signed components.
-            spv::Id sample_result_component = sample_result_component_unsigned;
-            if (features_.image_view_format_swizzle) {
-              sample_result_component = builder_->createTriOp(
-                  spv::OpSelect, type_float_,
-                  result_is_signed[result_component_index],
-                  builder_->createCompositeExtract(sample_result_signed,
-                                                   type_float_,
-                                                   result_component_index),
-                  sample_result_component);
-            }
-            // Unsigned biased.
-            spv::Id sample_result_component_unsigned_biased =
-                builder_->createNoContractionBinOp(
-                    spv::OpFMul, type_float_, sample_result_component_unsigned,
-                    const_float_2);
-            sample_result_component_unsigned_biased =
-                builder_->createNoContractionBinOp(
-                    spv::OpFAdd, type_float_,
-                    sample_result_component_unsigned_biased,
-                    const_float_minus_1);
-            result[result_component_index] = builder_->createTriOp(
-                spv::OpSelect, type_float_,
-                builder_->createBinOp(spv::OpIEqual, type_bool_,
-                                      swizzled_signs[result_component_index],
-                                      const_uint_sign_unsigned_biased),
-                sample_result_component_unsigned_biased,
-                sample_result_component);
-            gamma_sign_bits |= UINT32_C(1) << (swizzled_signs_word_offset +
-                                               2 * result_component_index);
-          }
-          if (gamma_sign_bits) {
-            // Gamma.
-            spv::Id is_any_gamma = builder_->createBinOp(
-                spv::OpINotEqual, type_bool_,
-                builder_->createBinOp(
-                    spv::OpBitwiseAnd, type_uint_,
-                    builder_->createBinOp(
-                        spv::OpBitwiseAnd, type_uint_, swizzled_signs_word,
-                        builder_->createBinOp(spv::OpShiftRightLogical,
-                                              type_uint_, swizzled_signs_word,
-                                              builder_->makeUintConstant(1))),
-                    builder_->makeUintConstant(gamma_sign_bits)),
-                const_uint_0_);
-            SpirvBuilder::IfBuilder if_any_gamma(
-                is_any_gamma, spv::SelectionControlDontFlattenMask, *builder_);
-            spv::Id result_gamma[4] = {};
-            {
-              result_remaining_components = used_result_nonzero_components;
-              while (xe::bit_scan_forward(result_remaining_components,
-                                          &result_component_index)) {
-                result_remaining_components &=
-                    ~(UINT32_C(1) << result_component_index);
-                result_gamma[result_component_index] = builder_->createTriOp(
-                    spv::OpSelect, type_float_,
-                    builder_->createBinOp(
-                        spv::OpIEqual, type_bool_,
-                        swizzled_signs[result_component_index],
-                        const_uint_sign_gamma),
-                    SpirvShaderTranslator::PWLGammaToLinear(
-                        builder_.get(),
-                        sample_result_components_unsigned
-                            [result_component_index],
-                        false, ext_inst_glsl_std_450_),
-                    result[result_component_index]);
-              }
-            }
-            if_any_gamma.makeEndIf();
-            result_remaining_components = used_result_nonzero_components;
-            while (xe::bit_scan_forward(result_remaining_components,
-                                        &result_component_index)) {
-              result_remaining_components &=
-                  ~(UINT32_C(1) << result_component_index);
-              result[result_component_index] = if_any_gamma.createMergePhi(
-                  result_gamma[result_component_index],
-                  result[result_component_index]);
-            }
-          }
-        } else {
+        {
           uint32_t result_remaining_components = used_result_nonzero_components;
           uint32_t result_component_index;
           while (xe::bit_scan_forward(result_remaining_components,
