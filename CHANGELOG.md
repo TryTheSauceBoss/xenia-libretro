@@ -4,6 +4,7 @@ What changed in the libretro core of this fork, newest first. Changes that come 
 
 ## Unreleased
 
+- The core info file names the core "Microsoft - Xbox 360 (Xendroid+)" in RetroArch's core list.
 - Every speed-up and fix ported from Xendroid+ that has a switch is now under Core Options > Xendroid+ Fixes and starts off (20 switches, three of them new: Collapse Guest Spin Loops, XMA Worker Skips Idle Streams, GPU Thread Sleeps Sooner). With them on, testers saw broken graphics that was not traced to one of them. Turn them on one at a time. Crash fixes with no switch stay in.
 - Fixed scrambled colours and missing images (Midnight Club: Los Angeles, Dante's Inferno): the gamma conversion branch ported from Xendroid+ is taken out again, texture sets are again reused within a submission only, and Dynamic Pipeline State and Sampler Cache start switched off.
 - New option (Xendroid+ Fixes > Sampler Cache) for less CPU time per draw on samplers, from Xendroid+: a draw with the same shader as the previous one reuses its samplers and only works out again the ones whose texture headers the game changed.

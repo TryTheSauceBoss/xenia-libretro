@@ -1,5 +1,5 @@
 # Software Information
-display_name = "Microsoft - Xbox 360 (Xenia Edge (Xendroid+))"
+display_name = "Microsoft - Xbox 360 (Xendroid+)"
 authors = "Xenia team|has207 (Xenia Edge)|phforner0 (Xendroid+)"
 supported_extensions = "iso|xex|zar|xcp|m3u"
 corename = "Xenia Edge (Xendroid+)"
