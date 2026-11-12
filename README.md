@@ -4,7 +4,9 @@ A [libretro](https://www.libretro.com/) core of [Xenia Edge](https://github.com/
 
 It is a core of its own, installed beside the plain Xenia Edge core rather than in its place: it shows as "Xenia Edge (Xendroid+)" in RetroArch, which keeps its options and overrides apart, its file is `xenia_edge_xendroid_libretro`, and it keeps everything in `system/Xenia-Edge-Xendroid/`. To carry saves and profiles over from Xenia Edge, copy `system/Xenia-Edge/content/` (and `xbla_folders.txt` or `xbl_profilename.txt`, if you made them) into `system/Xenia-Edge-Xendroid/`.
 
-Each fix ported from Xendroid+ that can be told apart can be turned off in the core options, under Xendroid+ Fixes, to find one that breaks a game; a change applies when the game is started again.
+The speed-ups and fixes ported from Xendroid+ each have a switch in the core options, under Xendroid+ Fixes. They all start off, so the core begins as plain Xenia Edge with Xendroid+'s crash fixes: turn them on one at a time and keep the ones that help your games. A change applies when the game is started again.
+
+RetroArch takes a core's name from its `.info` file, so a core installed from a file shows up under its file name until `xenia_edge_xendroid_libretro.info` (in the same download as the core) is in RetroArch's Core Info folder. On Android that folder is not reachable by default: set Settings > Directory > Core Info to a folder you can write to, run Online Updater > Update Core Info Files to fill it again, copy the `.info` file into it and restart RetroArch.
 
 The emulator is upstream's: this repository follows xenia-edge and adds the libretro frontend in `libretro/`. It holds the core only; upstream's standalone UI, packaging and CI are not part of it (the paths are listed in `.upstream-excluded`). The version the core reports is upstream's, with the upstream commit it is merged to (`upstream.version`). The core is currently on xenia-edge commit 0b9bcb5 of 9 November 2026.
 

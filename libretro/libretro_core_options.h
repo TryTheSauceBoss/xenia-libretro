@@ -124,7 +124,7 @@ struct retro_core_option_v2_category option_cats_us[] = {
     { "Compatibility", "Compatibility Settings",
       "Per-game hacks, memory, cache/scratch mounts." },
     { "xendroid", "Xendroid+ Fixes",
-      "Turn single fixes ported from Xendroid+ off, to find one that breaks a game. Each applies when the game is started again." },
+      "Speed-ups and fixes ported from Xendroid+, each with its own switch. All start off: turn them on one at a time and keep the ones that help your games. Each applies when the game is started again." },
     { "patches", "Patch Manager",
       "The game's patches from Xenia Edge's game-patches, for this version of it. A change applies at the next boot." },
     { NULL, NULL, NULL }
@@ -892,13 +892,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
     /* ================================================================ */
     /* --- Xendroid+ Fixes ---                                           */
     /* ================================================================ */
-    /* Off by default, unlike in Xendroid+: added after the last build a
-       tester saw rendering correctly, so on only once one has. */
+    /* All off by default, unlike in Xendroid+: with them on, testers saw
+       broken rendering that was not traced to one fix. */
     {
         "xenia_xd_dynamic_state",
         "Dynamic Pipeline State (Restart)",
         "Dynamic Pipeline State (Restart)",
-        "Topology, culling, depth, stencil, depth clamp, fill mode and blending set per draw instead of baked into each pipeline: fewer pipelines to compile, less stutter. From Xendroid+. Off by default: not yet seen working on a device. Applies when the game is started again.",
+        "Topology, culling, depth, stencil, depth clamp, fill mode and blending set per draw instead of baked into each pipeline: fewer pipelines to compile, less stutter. From Xendroid+. Applies when the game is started again.",
         NULL,
         "xendroid",
         {
@@ -920,15 +920,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
-    /* Off by default, unlike in Xendroid+: added after the last build a
-       tester saw rendering correctly, so on only once one has. */
     {
         "xenia_xd_sampler_cache",
         "Sampler Cache (Restart)",
         "Sampler Cache (Restart)",
-        "A draw with the same shader as the previous one keeps its samplers, working out again only those whose fetch constants changed. From Xendroid+. Off by default: not yet seen working on a device. Applies when the game is started again.",
+        "A draw with the same shader as the previous one keeps its samplers, working out again only those whose fetch constants changed. From Xendroid+. Applies when the game is started again.",
         NULL,
         "xendroid",
         {
@@ -950,7 +948,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_no_alpha_shaders",
@@ -964,7 +962,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_sampler_filterability",
@@ -978,7 +976,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_full_range_constants",
@@ -992,7 +990,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_pixel_vertex_buffers",
@@ -1006,7 +1004,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_no_geometry_shaders",
@@ -1020,7 +1018,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_texture_memo",
@@ -1034,7 +1032,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_bulk_registers",
@@ -1048,7 +1046,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_hoist_uploads",
@@ -1062,7 +1060,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_coalesced_texture_loads",
@@ -1076,7 +1074,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_ownership_memo",
@@ -1090,7 +1088,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_inline_calls",
@@ -1104,7 +1102,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_performance_hint",
@@ -1118,7 +1116,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
     },
     {
         "xenia_xd_early_submissions",
@@ -1132,7 +1130,49 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             { "disabled", NULL },
             { NULL, NULL }
         },
-        "enabled"
+        "disabled"
+    },
+    {
+        "xenia_xd_spin_loops",
+        "Collapse Guest Spin Loops (Restart)",
+        "Collapse Guest Spin Loops (Restart)",
+        "The recompiler turns the game's busy-wait loops (counted spins, delay countdowns, memory polls) into a short wait instead of running every iteration. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "disabled"
+    },
+    {
+        "xenia_xd_xma_enabled_contexts",
+        "XMA Worker Skips Idle Streams (Restart)",
+        "XMA Worker Skips Idle Streams (Restart)",
+        "With Dedicated XMA Thread on, the decoder thread visits only the sound streams the game started instead of all 320. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "disabled"
+    },
+    {
+        "xenia_xd_gpu_stall_park",
+        "GPU Thread Sleeps Sooner (Restart)",
+        "GPU Thread Sleeps Sooner (Restart)",
+        "The GPU thread polls for new commands 32 times instead of 500 before it sleeps until the game sends some. From Xendroid+. Applies when the game is started again.",
+        NULL,
+        "xendroid",
+        {
+            { "enabled", NULL },
+            { "disabled", NULL },
+            { NULL, NULL }
+        },
+        "disabled"
     },
     /* ================================================================ */
     /* --- Debug ---                                                     */

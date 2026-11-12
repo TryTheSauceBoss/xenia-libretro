@@ -202,6 +202,11 @@ DECLARE_bool(rt_cache_ownership_claim_memo);
 DECLARE_bool(inline_leaf_calls);
 DECLARE_bool(inline_gprlr_saverest);
 DECLARE_bool(apu_performance_hint);
+DECLARE_bool(collapse_ctr_spin_loops);
+DECLARE_bool(collapse_memory_delay_spins);
+DECLARE_bool(park_memory_poll_loops);
+DECLARE_bool(xma_worker_enabled_contexts_only);
+DECLARE_uint32(gpu_stall_spin_iterations);
 DECLARE_int32(vulkan_mid_frame_submission_draws);
 DECLARE_int32(vulkan_drained_submission_draws);
 
@@ -825,10 +830,12 @@ static void write_patch_files(void) {
 
 
 // The Xendroid+ Fixes category: one option per fix ported from Xendroid+,
-// each switching the cvars of that fix (all on by default, as in Xendroid+).
+// each switching the cvars of that fix. All off by default, unlike in
+// Xendroid+: with them on, testers saw broken rendering that was not traced
+// to one fix, so the core starts as plain Xenia Edge and each is opted into.
 struct XendroidToggle {
     const char *key;
-    bool *cvars[2];  // The second is null for a fix with one
+    bool *cvars[3];  // Null past the last one of the fix
 };
 static const XendroidToggle *xendroid_toggles(size_t *count) {
     static const XendroidToggle toggles[] = {
@@ -848,6 +855,8 @@ static const XendroidToggle *xendroid_toggles(size_t *count) {
         {"xenia_xd_ownership_memo", {&cvars::rt_cache_ownership_claim_memo}},
         {"xenia_xd_inline_calls", {&cvars::inline_leaf_calls, &cvars::inline_gprlr_saverest}},
         {"xenia_xd_performance_hint", {&cvars::apu_performance_hint}},
+        {"xenia_xd_spin_loops", {&cvars::collapse_ctr_spin_loops, &cvars::collapse_memory_delay_spins, &cvars::park_memory_poll_loops}},
+        {"xenia_xd_xma_enabled_contexts", {&cvars::xma_worker_enabled_contexts_only}},
     };
     *count = sizeof(toggles) / sizeof(toggles[0]);
     return toggles;
@@ -866,14 +875,19 @@ static void apply_core_options(void) {
         const XendroidToggle *toggles = xendroid_toggles(&toggle_count);
         for (size_t i = 0; i < toggle_count; ++i) {
             if ((v = opt_get(toggles[i].key))) {
-                const bool on = strcmp(v, "disabled") != 0;
+                const bool on = strcmp(v, "enabled") == 0;
                 for (bool *cvar : toggles[i].cvars)
                     if (cvar)
                         *cvar = on;
             }
         }
+        if ((v = opt_get("xenia_xd_gpu_stall_park"))) {
+            // 500 is what the core polled before the fix
+            cvars::gpu_stall_spin_iterations =
+                strcmp(v, "enabled") == 0 ? 32 : 500;
+        }
         if ((v = opt_get("xenia_xd_early_submissions"))) {
-            const bool on = strcmp(v, "disabled") != 0;
+            const bool on = strcmp(v, "enabled") == 0;
             cvars::vulkan_mid_frame_submission_draws = on ? 1300 : 0;
             cvars::vulkan_drained_submission_draws = on ? 100 : 0;
         }
