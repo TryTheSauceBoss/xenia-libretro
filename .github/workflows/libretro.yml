@@ -231,8 +231,17 @@ jobs:
           "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded dist/xenia_edge_xendroid_libretro_android.so
           "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d dist/xenia_edge_xendroid_libretro_android.so | grep NEEDED
           ls -la dist
+          # The built core has to carry the Xendroid+ Fixes options and its
+          # own name: fail here rather than on a tester's phone.
+          switches=$(strings -a dist/xenia_edge_xendroid_libretro_android.so | grep -c '^xenia_xd_' || true)
+          echo "Xendroid+ switches in the core: $switches"
+          test "$switches" -ge 20
+          strings -a dist/xenia_edge_xendroid_libretro_android.so | grep -q 'Xendroid+ Fixes'
+          echo "short_sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
 
+      # The commit is in the artifact's name, so downloads of different builds
+      # cannot be mistaken for one another.
       - uses: actions/upload-artifact@v4
         with:
-          name: xenia_edge_xendroid_libretro-android-${{ matrix.abi }}
+          name: xenia_edge_xendroid_libretro-android-${{ matrix.abi }}-${{ env.short_sha }}
           path: dist/
